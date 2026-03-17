@@ -7,5 +7,5 @@ if [ "$#" -lt 2 ]; then
   exit 1
 fi
 
-openssl ca -config "$PWD/data/certificates/$1/openssl-ca.cnf" -revoke "$PWD/data/certificates/$1/newcerts/$2/$2.cert.pem"
-mv "$PWD/data/certificates/$1/newcerts/$2 "$PWD/data/certificates/$1/revokedcerts"
+openssl ca -config "$1/openssl-ca.cnf" -revoke "$1/newcerts/$2/$2.cert.pem"
+rm -rf "$1/newcerts/$2"

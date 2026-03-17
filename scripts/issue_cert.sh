@@ -14,9 +14,6 @@ CERT_DIR="$CA_DIR/newcerts/$CN"
 
 mkdir -p "$CERT_DIR"
 
-echo "Using CA directory: $CA_DIR"
-echo "Generating certificate for: $CN"
-
 # Generate private key
 openssl genrsa -out "$CERT_DIR/$CN.key.pem" 2048
 
@@ -35,8 +32,3 @@ openssl x509 -req \
   -out "$CERT_DIR/$CN.cert.pem" \
   -days 365 \
   -sha256
-
-echo ""
-echo "Certificate created:"
-echo "Key:  $CERT_DIR/$CN.key.pem"
-echo "Cert: $CERT_DIR/$CN.cert.pem"

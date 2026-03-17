@@ -1,0 +1,44 @@
+{
+    "Num_Roots": 2,
+    "Chains": [
+        {
+            "RootID": 0,
+            "CAs": [
+                {
+                    "Algorithm": "RSA",
+                    "CN": "InterimCA1",
+                    "RevokedCertificates": 10,
+                    "ValidCertificates": [
+                        {
+                            "CN": "DemoLeaf",
+                            "Algorithm": "RSA"
+                        },
+                        {
+                            "CN": "DemoLeaf2",
+                            "Algorithm": "RSA"
+                        }
+                    ]
+                },
+                {
+                    "Algorithm": "ECDSA",
+                    "CN": "InterimCA2",
+                    "RevokedCertificates": 10,
+                    "ValidCertificates": [
+                        {
+                            "CN": "DemoLeaf3",
+                            "Algorithm": "ECDSA"
+                        },
+                        {
+                            "CN": "DemoLeaf4",
+                            "Algorithm": "ECDSA"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "RootID": 1,
+            "CAs": []
+        }
+    ]
+}
