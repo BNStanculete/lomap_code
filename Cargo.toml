@@ -8,4 +8,3 @@ winterfell = { version = "0.13.1", git = "https://github.com/BNStanculete/winter
 structopt = { version = "0.3", default-features = false }
 tracing = { version = "0.1", default-features = false }
 blake3 = { version = "1.8", default-features = false }
-sha2 = { version = "0.10.9" }

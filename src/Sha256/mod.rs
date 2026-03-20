@@ -1,6 +1,6 @@
 // Copyright Bogdan Stanculete 2026. All Rights Reserved.
 
-use std::time::Instant;
+use core::marker::PhantomData;
 
 use tracing::{field, info_span};
 use winterfell::{
@@ -9,11 +9,7 @@ use winterfell::{
     Proof, ProofOptions, Prover, Trace, VerifierError,
 };
 
-use sha2;
-use sha2::Digest;
-
 use crate::{
-    utils::to_base_element,
     Verifiable, Provable,
     Blake3_256
 };
@@ -21,8 +17,8 @@ use crate::{
 mod air;
 use air::{PublicInputs,Sha256Air};
 
-// mod prover;
-// use prover::Sha256Prover;
+mod prover;
+use prover::Sha256Prover;
 
 mod constants;
 
@@ -30,43 +26,32 @@ mod constants;
 mod tests;
 
 // CONSTANTS
-// ======================================================================================
+// ================================================================================================
 
 const CYCLE_LENGTH: usize = 177;
 const PADDED_CYCLE_LENGTH: usize = 256;
 const TRACE_WIDTH: usize = 271;
 
 // SHA-256
-// ======================================================================================
+// ================================================================================================
 
 pub struct Sha256 {
     options: ProofOptions,
 
-    message_bytes: Vec<u8>,
+    columns: Vec<Vec<BaseElement>>,
     num_blocks: usize,
     result: [BaseElement; 8],
 }
 
 impl Sha256 {
-    pub fn new(message_bytes: Vec<u8>, options: ProofOptions) -> Self {
-        let num_blocks: usize = message_bytes.len() / 512 + 1;
-        let mut hasher = sha2::Sha256::new();
-
-        let now = Instant::now();
-
-        hasher.update(message_bytes.as_slice());
-        let sha_result = hasher.finalize();
-        let result: [BaseElement; 8] = from_digest(sha_result.as_slice()).try_into().expect("Vec must have exactly 8 elements");
-
-        println!(
-            "Computed a hash of {} blocks in {} ms.",
-            num_blocks,
-            now.elapsed().as_millis(),
-        );
-
+    pub fn new(
+        options: ProofOptions,
+        columns: Vec<Vec<BaseElement>>,
+        num_blocks: usize,
+        result: [BaseElement; 8]) -> Self {
         Sha256 {
             options,
-            message_bytes,
+            columns,
             num_blocks,
             result: result,
         }
@@ -74,13 +59,13 @@ impl Sha256 {
 }
 
 // SHA-256 IMPLEMENTATION
-// ===============================================================================
+// ================================================================================================
 
 impl Verifiable for Sha256 {
     fn verify(&self, proof: Proof) -> Result<(), VerifierError> {
-        let trace_size = 177 * self.num_blocks + 4;
+        let trace_size = CYCLE_LENGTH * self.num_blocks + 4;
         let acceptable_options = winterfell::AcceptableOptions::OptionSet(vec![proof.options().clone()]);
-        let pub_inputs = PublicInputs { expected_length: trace_size.next_power_of_two(), result: self.result };
+        let pub_inputs = PublicInputs { expected_length: trace_size, result: self.result };
 
         winterfell::verify::<Sha256Air, Blake3_256, DefaultRandomCoin<Blake3_256>, MerkleTree<Blake3_256>>(
             proof,
@@ -90,21 +75,23 @@ impl Verifiable for Sha256 {
     }
 }
 
-// HELPER FUNCTIONS
-// =================================================================================
+impl Provable for Sha256 {
+    fn prove(&self) -> Proof {
+        println!("Generating proof for computing a hash of {} blocks. ", self.num_blocks);
 
-fn from_digest(digest: &[u8]) -> Vec<BaseElement> {
-    let mut result = Vec::new();
-    let mut part = 0u32;
+        // Create a new prover
+        let prover = Sha256Prover::<Blake3_256>::new(self.options.clone());
 
-    for i in 0..8 {
-        part = digest[4*i] as u32;
-        part = part << 8 + digest[4*i + 1] as u32;
-        part = part << 8 + digest[4*i + 2] as u32;
-        part = part << 8 + digest[4*i + 3] as u32;
+        // Generate execution trace
+        let trace =
+            info_span!("generate_execution_trace", num_cols = TRACE_WIDTH, steps = field::Empty)
+                .in_scope(|| {
+                    let trace = prover.build_trace(self.columns.clone());
+                    tracing::Span::current().record("steps", trace.length());
+                    trace
+                });
 
-        result.push(BaseElement::new(to_base_element(part)));
+        // generate the proof
+        prover.prove(trace).unwrap()
     }
-
-    result
 }

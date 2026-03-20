@@ -438,7 +438,7 @@ if __name__ == '__main__':
         },
 
         "Verification Time": {
-            "NaivePKI": pki_benchmarks["Runtime"] / pki_benchmarks["TestCases"] / 1000,
+            "NaivePKI": pki_benchmarks["Runtime"] / pki_benchmarks["TestCases"] / 1000000,
             "LOMAP": 0,
             "Improvement": 0,
             "Unit": "ms",

@@ -5,10 +5,6 @@ use super::{CYCLE_LENGTH, PADDED_CYCLE_LENGTH};
 
 use crate::utils::to_base_element;
 
-// According to NIST Specification
-// []
-const NUM_ROUNDS: usize = 64;
-
 pub const INITIAL_HASHES : [BaseElement; 8] = [
     BaseElement::new(to_base_element(0x6a09e667u32)),
     BaseElement::new(to_base_element(0xbb67ae85u32)),
@@ -96,7 +92,7 @@ pub fn get_round_constants() -> Vec<BaseElement> {
     let mut current_constant = 0;
 
     // Every 2nd row for the first 30 rows we add a round constant
-    for index in 0..15 {
+    for _ in 0..15 {
         constants.push(ROUND_CONSTANTS[current_constant]);
         constants.push(BaseElement::ZERO);
         current_constant += 1;

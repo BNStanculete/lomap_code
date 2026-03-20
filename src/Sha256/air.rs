@@ -12,7 +12,7 @@ use crate::utils::{
 
 
 // CONSTANTS
-// ======================================================================================
+// ================================================================================================
 
 const WORD_PRESERVATION_CYCLE: [BaseElement; PADDED_CYCLE_LENGTH] = build_word_preservation_cycle();
 const fn build_word_preservation_cycle() -> [BaseElement; PADDED_CYCLE_LENGTH] {
@@ -61,7 +61,7 @@ const fn build_round_cycle(offset: usize) -> [BaseElement; PADDED_CYCLE_LENGTH] 
 }
 
 // SHA-256 AIR
-// ======================================================================================
+// ================================================================================================
 
 pub struct PublicInputs {
     pub expected_length: usize,
@@ -89,8 +89,11 @@ impl Air for Sha256Air {
         let degrees = vec![
             TransitionConstraintDegree::new(1)
         ];
+        
+        let num_blocks: usize = (pub_inputs.expected_length - 4) / 177;
+        let actual_size = num_blocks * 256 + 4;
 
-        assert_eq!(pub_inputs.expected_length, trace_info.width());
+        assert_eq!(actual_size.next_power_of_two(), trace_info.height());
         Sha256Air {
             context: AirContext::new(trace_info, degrees, 17, options),
             result: pub_inputs.result,
@@ -104,7 +107,7 @@ impl Air for Sha256Air {
     fn evaluate_transition<E: FieldElement + From<Self::BaseField>>(
         &self,
         frame: &EvaluationFrame<E>,
-        _periodic_values: &[E],
+        periodic_values: &[E],
         result: &mut [E],
     ) {
         let current = frame.current();

@@ -8,7 +8,7 @@ use winterfell::{
 };
 
 // CONSTRAINT EVALUATION HELPERS
-// ================================================================================
+// ================================================================================================
 
 /// Returns zero when a == b.
 pub fn are_equal<E: FieldElement>(a: E, b: E) -> E {
@@ -28,6 +28,11 @@ pub fn is_binary<E: FieldElement>(a: E) -> E {
 /// Returns zero when a and b are multiplicative inverses.
 pub fn is_inverse<E: FieldElement>(a: E, b: E) -> E {
     a * b - E::ONE
+}
+
+/// Returns zero when a == one.
+pub fn not<E: FieldElement>(a: E) -> E {
+    a - E::ONE
 }
 
 // TRAIT TO SIMPLIFY CONSTRAINT AGGREGATION
