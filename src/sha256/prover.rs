@@ -8,7 +8,7 @@ use winterfell::{
 
 use super::{
     BaseElement, DefaultRandomCoin, ElementHasher, FieldElement, PhantomData, ProofOptions,
-    Prover, PublicInputs, Sha256Air,
+    Prover, PublicInputs, Sha256Air, constants, constraints::get_register_column
 };
 
 // SHA-256 PROVER
@@ -49,17 +49,19 @@ where H: ElementHasher<BaseField = BaseElement> + Sync {
 
     fn get_pub_inputs(&self, trace: &Self::Trace) -> PublicInputs {
         let last_step = trace.length() - 1;
+
+        // An expected length of 2^{64} is more than enough for most digital certificates and CRLs.
         PublicInputs {
-            expected_length: trace.get(0, last_step) * 177 + 4,
+            expected_length: trace.get(get_register_column(constants::NUM_ROWS_OFFSET, 0), last_step),
             result: [
-                trace.get(263, last_step),
-                trace.get(264, last_step),
-                trace.get(265, last_step),
-                trace.get(266, last_step),
-                trace.get(267, last_step),
-                trace.get(268, last_step),
-                trace.get(269, last_step),
-                trace.get(270, last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 0), last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 1), last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 2), last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 3), last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 4), last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 5), last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 6), last_step),
+                trace.get(get_register_column(constants::HASH_OFFSET, 7), last_step),
             ]
         }
     }
@@ -68,7 +70,7 @@ where H: ElementHasher<BaseField = BaseElement> + Sync {
         &self.options
     }
 
-fn new_trace_lde<E: FieldElement<BaseField = Self::BaseField>>(
+    fn new_trace_lde<E: FieldElement<BaseField = Self::BaseField>>(
         &self,
         trace_info: &TraceInfo,
         main_trace: &ColMatrix<Self::BaseField>,

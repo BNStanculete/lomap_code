@@ -8,6 +8,7 @@ from cryptography import x509
 import time
 import tracemalloc
 
+from hashlib import sha256
 from os.path import getsize
 
 import logging
@@ -44,11 +45,13 @@ def clean_test_environment():
     cert_data = glob.glob(f"{pwd}/data/certificates/*")
     trust_store = glob.glob(f"{pwd}/data/trust_stores/lomap/*")
     lomap_store = glob.glob(f"{pwd}/results/trust_stores/lomap/*")
+    lomap_anchors = glob.glob(f"{pwd}/data/anchors/*")
 
     rets = [
         run(["rm", "-rf", *cert_data]),
         run(["rm", "-rf", *trust_store]),
-        run(["rm", "-rf", *lomap_store])
+        run(["rm", "-rf", *lomap_store]),
+        run(["rm", "-rf", *lomap_anchors])
     ]
 
     for ret in rets:        
@@ -332,6 +335,41 @@ def get_cert_chains(cert_paths: dict[str, str], ca_paths: dict[str, str], root_p
 
     return (chainObjects, sizes, cache_sizes)
 
+def get_lomap_anchor(cert_chain: list) -> list:
+    """Converts a certificate chain into a LOMAP anchor.
+
+    Arguments:
+        cert_chain (list): The certificate chain, including CRLs.
+    
+    Returns:
+        list: A list of the resulting LOMAP nodes.
+    """
+    anchor = [
+        [
+            get_cn(cert_chain[0].subject) + '\n',
+            sha256(str(cert_chain[0].serial_number).encode('utf-8')).hexdigest() + '\n',
+            sha256(cert_chain[0].subject.rfc4514_string().encode('utf-8')).hexdigest() + '\n',
+            str(cert_chain[0].not_valid_before_utc) + '\n',
+            str(cert_chain[0].not_valid_after_utc) + '\n',
+            sha256(str(cert_chain[0].public_key).encode('utf-8')).hexdigest() + '\n\n'  
+        ]
+    ]
+
+    for cert, crl in cert_chain[1:]:
+        anchor.append([
+                get_cn(cert.subject) + '\n',
+                sha256(str(cert.serial_number).encode('utf-8')).hexdigest() + '\n',
+                sha256(cert.subject.rfc4514_string().encode('utf-8')).hexdigest() + '\n',
+                str(cert.not_valid_before_utc) + '\n',
+                str(cert.not_valid_after_utc) + '\n',
+                sha256(str(cert.public_key).encode('utf-8')).hexdigest() + '\n',
+                sha256(crl.tbs_certlist_bytes).hexdigest() + '\n',
+                str(crl.last_update_utc) + '\n',
+                str(crl.next_update_utc) + '\n\n',
+            ])
+        
+    return anchor
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
         prog = "LOMAP Test Runner",
@@ -361,11 +399,25 @@ if __name__ == '__main__':
     logger.info("Collecting certificate chains")
     chains, sizes, cache_sizes = get_cert_chains(cert_paths, ca_paths, root_paths)
 
+    # Creating and storing anchors
+    lomap_storage = 0
+    for id, chain in enumerate(chains):
+        anchor = get_lomap_anchor(chain)
+
+        with open(f"{pwd}/data/anchors/{id}.txt", "w") as file:
+            for data in anchor:
+                file.writelines(data)
+
+        lomap_size = getsize(f"{pwd}/data/anchors/{id}.txt")
+        lomap_storage += lomap_size
+        print(lomap_size)
+
+
     # Run PKI verifier
     logger.info("Running the PKI benchmarks")
     pki_benchmarks = {
         "TestCases": 0,
-        "Runtime": 0,               # ns
+        "Runtime": 0,               # ms
         "Memory": 0,                # bytes
         "Bandwidth": sum(sizes),    # bytes
         "Storage": sum(cache_sizes) # bytes
@@ -429,11 +481,15 @@ if __name__ == '__main__':
 
 
     # Build metrics
+    pki_storage = pki_benchmarks["Storage"] / pki_benchmarks["TestCases"]
+    lomap_storage = lomap_storage / pki_benchmarks["TestCases"]
+    improvement = lomap_storage / pki_storage
+
     metrics = {
         "Proving Time": {
-            "NaivePKI": 0,
+            "NaivePKI": "N/A",
             "LOMAP": 0,
-            "Improvement": 0,
+            "Improvement": "N/A",
             "Unit": "ms"
         },
 
@@ -445,14 +501,14 @@ if __name__ == '__main__':
         },
 
         "Proof Size": {
-            "NaivePKI": pki_benchmarks["Bandwidth"] / pki_benchmarks["TestCases"] / 1024,
+            "NaivePKI": pki_benchmarks["Bandwidth"] / pki_benchmarks["TestCases"],
             "LOMAP": 0,
             "Improvement": 0,
-            "Unit": "KB"
+            "Unit": "bytes"
         },
 
         "Memory Consumption": {
-            "NaivePKI": pki_benchmarks["Memory"] / pki_benchmarks["TestCases"] / 1024,
+            "NaivePKI": pki_benchmarks["Memory"] / pki_benchmarks["TestCases"],
             "LOMAP": 0,
             "Improvement": 0,
             "Unit": "bytes"
@@ -460,9 +516,9 @@ if __name__ == '__main__':
 
         "Permanent Storage": {
             "NaivePKI": pki_benchmarks["Storage"] / pki_benchmarks["TestCases"],
-            "LOMAP": 0,
-            "Improvement": 0,
-            "Unit": "KB"
+            "LOMAP": lomap_storage,
+            "Improvement": f"{1 / improvement * 100:.2f}%",
+            "Unit": "bytes"
         }
     }
 

@@ -6,7 +6,7 @@ use winterfell::{
     BatchingMethod, FieldExtension, Proof, ProofOptions, VerifierError
 };
 
-pub mod Sha256;
+pub mod sha256;
 
 mod utils;
 
@@ -25,6 +25,8 @@ pub trait Provable {
 pub trait Verifiable {
     fn verify(&self, proof: Proof) -> Result<(), VerifierError>;
 }
+
+pub trait Testable: Provable + Verifiable {}
 
 // PROTOCOL OPTIONS
 // ================================================================================================

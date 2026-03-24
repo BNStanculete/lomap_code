@@ -10,7 +10,7 @@ use winterfell::{
 };
 
 use crate::{
-    Verifiable, Provable,
+    Verifiable, Provable, Testable,
     Blake3_256
 };
 
@@ -20,17 +20,17 @@ use air::{PublicInputs,Sha256Air};
 mod prover;
 use prover::Sha256Prover;
 
+mod constraints;
 mod constants;
 
 #[cfg(test)]
 mod tests;
 
-// CONSTANTS
+// TRACE CONSTANTS
 // ================================================================================================
 
-const CYCLE_LENGTH: usize = 177;
-const PADDED_CYCLE_LENGTH: usize = 256;
-const TRACE_WIDTH: usize = 271;
+pub const CYCLE_LENGTH: usize = 177;
+pub const TRACE_WIDTH: usize = 269;
 
 // SHA-256
 // ================================================================================================
@@ -63,9 +63,10 @@ impl Sha256 {
 
 impl Verifiable for Sha256 {
     fn verify(&self, proof: Proof) -> Result<(), VerifierError> {
-        let trace_size = CYCLE_LENGTH * self.num_blocks + 4;
+        let trace_size: u64 = (CYCLE_LENGTH * self.num_blocks + 5) as u64;
         let acceptable_options = winterfell::AcceptableOptions::OptionSet(vec![proof.options().clone()]);
-        let pub_inputs = PublicInputs { expected_length: trace_size, result: self.result };
+        let pub_inputs = PublicInputs { expected_length: BaseElement::from(trace_size),
+                                        result: self.result };
 
         winterfell::verify::<Sha256Air, Blake3_256, DefaultRandomCoin<Blake3_256>, MerkleTree<Blake3_256>>(
             proof,
@@ -95,3 +96,5 @@ impl Provable for Sha256 {
         prover.prove(trace).unwrap()
     }
 }
+
+impl Testable for Sha256 {}
