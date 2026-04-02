@@ -1,0 +1,6 @@
+# RSA-2048 Trace Constants
+
+TRACE_WIDTH = 451
+CYCLE_LENGTH = 8194
+
+REGISTER_LIMIT = pow(2, 64)

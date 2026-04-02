@@ -1,4 +1,4 @@
-from trace_builders import TraceBuilder, Trace
+from trace_builders import TraceBuilder, Trace, next_power_of_two
 from . import constants, utils
 from copy import deepcopy
 
@@ -7,7 +7,7 @@ class Sha256Trace(Trace):
         super().__init__()
         
         self.__width = constants.TRACE_WIDTH
-        self.__height = utils.next_power_of_two(num_blocks * constants.CYCLE_LENGTH + 5)
+        self.__height = next_power_of_two(num_blocks * constants.CYCLE_LENGTH + 5)
         self.__trace = []        
 
     def get_length(self):
@@ -134,7 +134,7 @@ class Sha256TraceBuilder(TraceBuilder):
         # Pad to the nearest power of two
         if self.__hasPadding:
             completed_rows = (177 * self.__num_blocks + 5)
-            for _ in range(completed_rows, utils.next_power_of_two(completed_rows)):
+            for _ in range(completed_rows, next_power_of_two(completed_rows)):
                 self.__build_row(trace, in_memory)
 
         return trace
@@ -169,11 +169,6 @@ class Sha256TraceBuilder(TraceBuilder):
         self.__W = self.__message_blocks[:16]
         self.__message_blocks = self.__message_blocks[16:]
 
-    def __reset_carries(self):
-        """Reset all carry registers to 0
-        """
-        self.__CARRY = [0 for _ in range(8)]
-    
     def __build_row(self, trace: Sha256Trace, in_memory: bool):
         """Saves the next row of the trace.
 

@@ -40,18 +40,3 @@ def from_bytes_to_32bit_blocks(data: list[int]) -> list[int]:
         block = (data[i] << 24) | (data[i+1] << 16) | (data[i+2] << 8) | data[i+3]
         blocks.append(block)
     return blocks
-
-def next_power_of_two(number: int) -> int:
-    """Computes the next power of two that is >= the provided number.
-
-    Arguments:
-        number (int) : The number
-    
-    Returns:
-        int : The power of two that is >= number.
-    """
-    power_of_two = 1
-
-    while power_of_two < number:
-        power_of_two *= 2
-    return power_of_two
