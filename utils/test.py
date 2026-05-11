@@ -55,7 +55,8 @@ if __name__ == '__main__':
     representative_int = int.from_bytes(representative, "big")
 
     # builder = Sha256TraceBuilder(message, file_path)
-    builder = RSA2048TraceBuilder(hash_int, (public_key.public_numbers().e, public_key.public_numbers().n), signature_int, file_path)
+    builder = RSA2048TraceBuilder(file_path)
+    builder.from_signed_message(hash_int, (public_key.public_numbers().e, public_key.public_numbers().n), signature_int)
 
     start = time.perf_counter_ns()
     tracemalloc.start()

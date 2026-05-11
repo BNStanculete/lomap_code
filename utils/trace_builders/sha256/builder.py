@@ -2,63 +2,11 @@ from trace_builders import TraceBuilder, Trace, next_power_of_two
 from . import constants, utils
 from copy import deepcopy
 
-class Sha256Trace(Trace):
-    def __init__(self, num_blocks: int):
-        super().__init__()
-        
-        self.__width = constants.TRACE_WIDTH
-        self.__height = next_power_of_two(num_blocks * constants.CYCLE_LENGTH + 5)
-        self.__trace = []        
-
-    def get_length(self):
-        return self.__height
-    
-    def get_width(self):
-        return self.__width
-
-    def as_list(self):
-        return self.__trace
-
-    def _write_row_to_file(self, row_id, file_path):
-        with open(file_path, "a") as file:
-            for value in self.__trace[row_id]:
-                file.write(str(value))
-                file.write(" ")
-            file.write("\n")
-
-    def _extend_vertically(self, trace):
-        trace_matrix = trace.as_list()
-
-        for row in trace_matrix:
-            self.__trace.append(row)
-
-    def _extend_horizontally(self, trace):
-        trace_matrix = trace.as_list()
-
-        for row_index in range(0, self.__height):
-            self.__trace[row_index].extend(trace_matrix[row_index])
-
-class Sha256TraceBuilder(TraceBuilder):
-    def __init__(self, message, trace_file: str):
-        self.__message_blocks = utils.from_bytes_to_32bit_blocks(
-            utils.as_padded_bytes(message))
-        self.__num_blocks = len(self.__message_blocks) // 16
+class TraceBuilder(TraceBuilder):
+    def __init__(self, trace_file: str):
         self.__trace_file = trace_file
-
-        self.__NUM_ROWS = 0
-        self.__W = [0 for _ in range(16)]
-        self.__A, self.__B, self.__C, self.__D, self.__E, self.__F, self.__G, self.__H, self.__T1, self.__T2 = 0,0,0,0,0,0,0,0,0,0
-        self.__BITS = [0 for _ in range(224)]
-        self.__BITWISE_OUTPUT = [0, 0]
         self.__hasAttestation = True
         self.__hasPadding = True
-
-        # Carries 0 - 2 are allocated for T1/W computation
-        # Carries 3     are allocated for E
-        # Carries 4     are allocated for T2
-        # Carries 5     are allocated for A
-        self.__CARRY = [0 for _ in range(8)]
-        self.__HASH = [0 for _ in range(8)]
 
     def toggleAttestation(self):
         """Toggles whether to include hash attestation in the trace.
@@ -70,27 +18,23 @@ class Sha256TraceBuilder(TraceBuilder):
         """
         self.__hasPadding = not self.__hasPadding
 
-    def from_message_blocks(self, message_blocks: list[int]):
-        """Reset the builder using message blocks
+    def from_message(self, message):
+        """Initialize the builder using a message
+        """
+        self.__message_blocks = utils.from_bytes_to_32bit_blocks(
+            utils.as_padded_bytes(message))
+        self.__num_blocks = len(self.__message_blocks) // 16
+        self.__reset_registers()
+
+    def set_message_blocks(self, message_blocks: list[int]):
+        """Initialize the builder using message blocks
         """
         self.__message_blocks = message_blocks
         self.__num_blocks = len(self.__message_blocks) // 16
-
-        self.__NUM_ROWS = 0
-        self.__W = [0 for _ in range(16)]
-        self.__A, self.__B, self.__C, self.__D, self.__E, self.__F, self.__G, self.__H, self.__T1, self.__T2 = 0,0,0,0,0,0,0,0,0,0
-        self.__BITS = [0 for _ in range(224)]
-        self.__BITWISE_OUTPUT = [0, 0]
-
-        # Carries 0 - 2 are allocated for T1/W computation
-        # Carries 3     are allocated for E
-        # Carries 4     are allocated for T2
-        # Carries 5     are allocated for A
-        self.__CARRY = [0 for _ in range(8)]
-        self.__HASH = [0 for _ in range(8)]
+        self.__reset_registers()
 
     def build_trace(self, in_memory) -> Trace:
-        trace = Sha256Trace(self.__num_blocks)
+        trace = Trace(self.__num_blocks)
         blocks_to_process = True
 
         # Set the initial row
@@ -139,6 +83,20 @@ class Sha256TraceBuilder(TraceBuilder):
 
         return trace
 
+    def __reset_registers(self):
+        self.__NUM_ROWS = 0
+        self.__W = [0 for _ in range(16)]
+        self.__A, self.__B, self.__C, self.__D, self.__E, self.__F, self.__G, self.__H, self.__T1, self.__T2 = 0,0,0,0,0,0,0,0,0,0
+        self.__BITS = [0 for _ in range(224)]
+        self.__BITWISE_OUTPUT = [0, 0]
+
+        # Carries 0 - 2 are allocated for T1/W computation
+        # Carries 3     are allocated for E
+        # Carries 4     are allocated for T2
+        # Carries 5     are allocated for A
+        self.__CARRY = [0 for _ in range(8)]
+        self.__HASH = [0 for _ in range(8)]
+
     def __build_registers(self) -> list[int]:
         """Converts the registers into a trace row.
         """
@@ -169,13 +127,13 @@ class Sha256TraceBuilder(TraceBuilder):
         self.__W = self.__message_blocks[:16]
         self.__message_blocks = self.__message_blocks[16:]
 
-    def __build_row(self, trace: Sha256Trace, in_memory: bool):
+    def __build_row(self, trace: Trace, in_memory: bool):
         """Saves the next row of the trace.
 
         If the in_memory flag is False, the row is immediatelly written to file.
 
         Arguments:
-            trace (Sha256Trace): The trace that is currently being built
+            trace (Trace): The trace that is currently being built
             in_memory (bool): Flag which denotes whether to store the row to file or keep it in memory.
         """
         if not in_memory:

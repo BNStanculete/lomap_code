@@ -19,28 +19,15 @@ class RegisterView:
     def __init__(self, *registers):
         self.registers = registers
         self.flat_map = []  # maps global index -> (reg, local index)
+        self.__length = 0
 
         for reg, start, length in registers:
+            self.__length += length
+            
             for i in range(length):
                 self.flat_map.append((reg, start + i))
         
-        # Precompute cumulative offsets
-        # self.offsets = []
-        # total = 0
-        # for _, _, length in registers:
-        #     self.offsets.append(total)
-        #     total += length
         self.total_size = len(self.flat_map)
-
-    # def _locate(self, i):
-    #     if i < 0 or i >= self.total_size:
-    #         raise IndexError("Register index out of range")
-        
-    #     # Find which register this index belongs to
-    #     for (reg, start, length), offset in zip(self.registers, self.offsets):
-    #         print(i, offset, length)
-    #         if i < offset + length:
-    #             return reg, i + start - offset
 
     def __getitem__(self, i):
         reg, j = self.flat_map[i]
@@ -49,3 +36,6 @@ class RegisterView:
     def __setitem__(self, i, value):
         reg, j = self.flat_map[i]
         reg[j] = value
+
+    def __len__(self):
+        return self.__length

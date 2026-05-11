@@ -1,64 +1,19 @@
 from trace_builders import TraceBuilder, Trace, RegisterView, next_power_of_two
 from . import constants
 from copy import deepcopy
-from math import ceil, log2
-
-class RSA2048Trace(Trace):
-    def __init__(self, log_exponent: int):
-        super().__init__()
-        
-        self.__width = constants.TRACE_WIDTH
-        self.__height = next_power_of_two(log_exponent * constants.CYCLE_LENGTH + 64)
-        self.__trace = []        
-
-    def get_length(self):
-        return self.__height
-    
-    def get_width(self):
-        return self.__width
-
-    def as_list(self):
-        return self.__trace
-
-    def _write_row_to_file(self, row_id, file_path):
-        with open(file_path, "a") as file:
-            for value in self.__trace[row_id]:
-                file.write(str(value))
-                file.write(" ")
-            file.write("\n")
-
-    def _extend_vertically(self, trace):
-        trace_matrix = trace.as_list()
-
-        for row in trace_matrix:
-            self.__trace.append(row)
-
-    def _extend_horizontally(self, trace):
-        trace_matrix = trace.as_list()
-
-        for row_index in range(0, self.__height):
-            self.__trace[row_index].extend(trace_matrix[row_index])
 
 class RSA2048TraceBuilder(TraceBuilder):
-    def __init__(self, representative: int, public_key: tuple[int, int], signature: int, trace_file: str):
+    def __init__(self, trace_file: str):
         super().__init__()
-
-        self.__HASH = [0] * 4
-        self.__N = [0] * 32
-        self.__E = [0, 0]
-        self.__SIGNATURE = [0] * 32
-        self.__NEXT_E = [0]
-        self.__BIT_E = [0]
-        self.__BASE = [0] * 32
-        self.__REPRESENTATIVE = [0] * 32
-        self.__RESULT = [0] * 34
-        self.__CARRY = [0] * 33
-        self.__QUOTIENT = [0]
-        self.__REMAINING = [0] * 187
+        self.__reset_registers()
         self.__hasPadding = True
-        self.__log_exponent = ceil(log2(public_key[0]))
-        self.__trace_file = trace_file
-    
+        self.__trace_file = trace_file    
+
+    def from_signed_message(self, representative: int, public_key: tuple[int, int], signature: int):
+        """Initialize the trace builder using the public information of a signed message.
+        """
+        self.__reset_registers()
+
         for i in range(32):
             self.__N[i] = (public_key[1] >> (2048 - 64 * (i + 1))) & 0xFFFFFFFFFFFFFFFF
             self.__SIGNATURE[i] = (signature >> (2048 - 64 * (i + 1))) & 0xFFFFFFFFFFFFFFFF
@@ -77,10 +32,10 @@ class RSA2048TraceBuilder(TraceBuilder):
         self.__hasPadding = not self.__hasPadding
 
     def build_trace(self, in_memory) -> Trace:
-        trace = RSA2048Trace(self.__log_exponent)
+        trace = Trace()
         
         # Build the first 64 rows attesting to signature < N
-        # self.__build_initial_attestation(trace, in_memory)
+        self.__build_initial_attestation(trace, in_memory)
 
         # The next 8192 * log2 e rows attest to the SQM
         e_copy = deepcopy(self.__E)
@@ -89,23 +44,44 @@ class RSA2048TraceBuilder(TraceBuilder):
         self.__BASE = deepcopy(self.__SIGNATURE)
         self.__REPRESENTATIVE[-1] = 1
 
-        for _ in range(128):
-            # If the first register of E is non-zero, we need 128 steps to exhaust the last register.
-            e_copy[1] = self.__build_SQM_step(e_copy[1], trace, in_memory)
+        for pos in range(3,-1,-1):
+            current = e_copy[pos]
 
-            if e_copy[1] == 0 and e_copy[0] == 0:
-                # If E < 2^128 then stop early
+            if e_copy[:pos].count(0) == pos:
+                # No more registers afterwards
+                # We can simply exhaust this one
+                while current > 0:
+                    current = self.__build_SQM_step(current, trace, in_memory)
                 break
-        else:
-            while e_copy[0] > 0:
-                e_copy[0] = self.__build_SQM_step(e_copy[0], trace, in_memory)
+            else:
+                # There are still non-zero registers
+                # We perform mandatory 64 steps
+                for _ in range(64):
+                    current = self.__build_SQM_step(current, trace, in_memory)
 
-        for i in range(4):
-            assert self.__HASH[i] == self.__REPRESENTATIVE[28 + i]
+        # Pad to the nearest power of two
+        if self.__hasPadding:
+            completed_rows = trace.get_length()
+            for _ in range(completed_rows, next_power_of_two(completed_rows)):
+                self.__build_row(trace, in_memory)
 
         return trace
 
-    def __build_SQM_step(self, current_e: int, trace: RSA2048Trace, in_memory: bool) -> int:
+    def __reset_registers(self):
+        self.__HASH = [0] * 4
+        self.__N = [0] * 32
+        self.__E = [0, 0, 0, 0]
+        self.__SIGNATURE = [0] * 32
+        self.__NEXT_E = [0]
+        self.__BIT_E = [0]
+        self.__BASE = [0] * 32
+        self.__REPRESENTATIVE = [0] * 32
+        self.__RESULT = [0] * 34
+        self.__CARRY = [0] * 33
+        self.__QUOTIENT = [0]
+        self.__REMAINING = [0] * 187
+
+    def __build_SQM_step(self, current_e: int, trace: Trace, in_memory: bool) -> int:
         # First row of each step also updates the E registers
         self.__BIT_E[0] = current_e % 2
         self.__NEXT_E[0] = current_e // 2
@@ -350,7 +326,7 @@ class RSA2048TraceBuilder(TraceBuilder):
 
         return self.__NEXT_E[0]
 
-    def __build_initial_attestation(self, trace: RSA2048Trace, in_memory: bool):
+    def __build_initial_attestation(self, trace: Trace, in_memory: bool):
         # -- Perform register remapping --
         REMAINING = RegisterView(
             (self.__NEXT_E, 0, 1),
@@ -432,7 +408,7 @@ class RSA2048TraceBuilder(TraceBuilder):
             *self.__REMAINING
         ]
     
-    def __build_row(self, trace: RSA2048Trace, in_memory: bool):
+    def __build_row(self, trace: Trace, in_memory: bool):
         """Saves the next row of the trace.
 
         If the in_memory flag is False, the row is immediatelly written to file.
