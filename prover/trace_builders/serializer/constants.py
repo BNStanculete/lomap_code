@@ -1,0 +1,6 @@
+
+TRACE_WIDTH = 481
+
+# TAGs
+INTEGER = int('0x02', 16)
+SEQUENCE = int('0x30', 16)

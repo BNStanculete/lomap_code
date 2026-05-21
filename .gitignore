@@ -189,7 +189,8 @@ Cargo.lock
 *.pdb
 
 # Generated data
-results/
-data/
+artifacts/
+interfaces/
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,python
+old/

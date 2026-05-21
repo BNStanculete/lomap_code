@@ -1,2 +1,0 @@
-
-TRACE_WIDTH = 481
