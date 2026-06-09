@@ -1,46 +1,22 @@
-from prover.trace_builders import TraceBuilder, Trace, RegisterView, next_power_of_two
+from prover.trace_builders import TraceBuilder, Trace, RegisterView, next_power_of_two, get_modular_inverse
 from prover.trace_builders.rsa2048 import RSA2048TraceBuilder
 from prover.trace_builders.sha256 import Sha256TraceBuilder
 from prover.trace_builders.sha256.constants import INITIAL_HASHES
+from prover.trace_builders.sha256.constants import TRACE_WIDTH as SHA_TRACE_WIDTH
 from . import constants
+from . import utils
 from copy import deepcopy
-from math import ceil, log2
 
-# I also need the raw bytes, so I need the path
+from hashlib import sha256
+
+from functools import partial
+from collections.abc import Callable
+
+FIELD_MODULUS = pow(2, 128) - 45 * pow(2, 40) + 1
 
 class CrlTraceBuilder(TraceBuilder):
     def __init__(self, trace_file: str):
-        # State Machine registers
-        self.__NUM_ROWS = 0
-        self.__SUBTRACE = 0             # 1 - SERIAL, 2 - HASH, 3 - SIGNATURE
-        self.__SUBTRACE_STEP = 0
-
-        self.__HASH_SUBTRACE = 0        # non-0 when SUBTRACE = 2
-        self.__SERIAL_SUBTRACE = 0      # non-0 when SUBTRACE = 1
-        self.__SIGNATURE_SUBTRACE = 0   # non-0 when SUBTRACE = 3
-
-        # Input registers
-        self.__SERIAL = [0] * 4
-        self.__SIGNATURE_ALGO = 0
-        self.__PUBLIC_KEY = [0] * 36
-        self.__SIGNATURE = [0] * 32
-
-        # Output registers
-        self.__OUT_HASH = [0] * 4
-
-        # Serialization registers
-        self.__BLOCK_ACCUMULATORS = [0] * 9
-        self.__HASH = [0] * 4
-
-        self.__SEQUENCE_LENGTH = 0
-        self.__CRL_LENGTH = 0
-        self.__CRL_END = 0
-        self.__CRL_FIELD = 0
-        self.__FIELD_LENGTH = 0     # For sequences or otherwise multi-row fields
-
-        # From here is safe to repurpose
-        self.__FIELD_VALUE = [0] * 8   # 8 64-bit registers exhausts an empty accumulator
-        self.__REMAINING = [0] * 383
+        self.__reset_registers()
 
         self.__raw = b''
         self.__trace_file = trace_file
@@ -48,23 +24,41 @@ class CrlTraceBuilder(TraceBuilder):
 
         # Internal builders for hashing & signature verification
         self.__hasher = Sha256TraceBuilder(trace_file)
+        self.__hasher.toggleAttestation()
+        self.__hasher.togglePadding()
+
         self.__signature_verifier = RSA2048TraceBuilder(trace_file)
+        self.__signature_verifier.togglePadding()
+
+        # for debug
+        self.__reconstructed = b''
 
     def togglePadding(self):
         """Toggles whether to pad the trace to the nearest power of two.
         """
         self.__hasPadding = not self.__hasPadding
 
-    def set_input(self, serial: int, signature_oid: str, signature: list[int], public_key: list[int, int], raw_bytes: bytes) -> None:
+    def set_input(self, serial: int, signature_oid: str, signature: list[int], public_key: list[int, int], issuer: list[dict], interval: list[str, str], revocation_data: list[int, str], raw_bytes: bytes) -> None:
         """Resets the trace builder and initializes the registers to the provided input
         """
         self.__reset_registers()
         self.__raw = raw_bytes
+        self.__issuer = issuer
+        self.__interval = interval
+        self.__revocation_data = revocation_data
 
         # Set output hashes to initial blocks
+        self.__REPRESENTATIVE[0] = 0x0001FFFFFFFFFFFF
+
+        for i in range(1, 25):
+            self.__REPRESENTATIVE[i] = 0xFFFFFFFFFFFFFFFF
+
+        self.__REPRESENTATIVE[25] = 0xFFFFFFFF00303130 
+        self.__REPRESENTATIVE[26] = 0x4801650D06096086 
+        self.__REPRESENTATIVE[27] = 0x0304020105000420
+
         for idx in range(4):
-            self.__OUT_HASH[idx] = (INITIAL_HASHES[2 * idx] << 32) | INITIAL_HASHES[2 * idx + 1]
-            self.__HASH[idx] = (INITIAL_HASHES[2 * idx] << 32) | INITIAL_HASHES[2 * idx + 1]
+            self.__REPRESENTATIVE[28+idx] = (INITIAL_HASHES[2 * idx] << 32) | INITIAL_HASHES[2 * idx + 1]
 
         # Set Serial
         for idx in range(4):
@@ -105,92 +99,351 @@ class CrlTraceBuilder(TraceBuilder):
         else:
             self.__SIGNATURE_ALGO = 0
 
-        # Setting state machine
-        self.__SUBTRACE = 1
-        self.__SERIAL_SUBTRACE = 2
-
     def build_trace(self, in_memory) -> Trace:
-        """The state machine has the following steps:
-            0. Input row
-            1. Version field (Integer, 1,2,3)
-            (Signature is skipped since it must match the Input SIGNATURE_ALGO)
-            
-            2. Issuer field (Name, it must fit within the registers)
-                -> May span multiple rows for long names.
-                -> For that reason we need a row counter.
-        
-            3. ThisUpdate (fixed length)
-            4. NextUpdate (fixed legnth)
-
-            5. revokedCertificates
-                6. userCertificate -> here we also attest non-revocation
-                7. revocationDate
-                8. extensions
-                    -> Thi may take multiple rows
-        
-            9. extensions
-
-        * For extensions we do not care about semantics, and not serialize.
-          The prover is asked to input DER-encoded bytes
-        
-        ** Whenever BLOCK_ACUMULATORS[16] != 0, we immediatelly perform 1 SHA-256 round
-        *** Object_End must be set by prover, and BLOCK_ACUMULATORS are initialized to the TBSCertList header (TL fields)
-        **** We expect at the end that CRL_LENGTH = 0
-
-        ***** To decrese CRL_LENGTH, we must calculate the length of the serialized fields.
-        ***** For that we provide for each register 0 or (inv) => constraint: REG * (REG * INV - 1) = 0 (64 regs + 128 regs for first non-zero + 1 for non-revocation)
-                => LENGTH = BIT_LENGTH + SUM 64 * (REG * INV) (this is for 1 row. If register can span more rows, we ask prover to provide length => LENGTH = 0 at the end)
-
-        ***** The last 2 subtraces are in order:
-            - SHA-256 (last hash with padding)
-            - SIGNATURE_VERIFICATION
-        In particular during last hash_update, if Object_End = 1, then Subtrace = SIGNATURE_VERIFICATION.
-        """
         trace = Trace()
 
-        # Build the input row
-        self.__build_row(trace, in_memory)
-
         # We start encoding field by field
-        offset = self.__set_crl_header()
+        self.__reconstruct_crl_header()
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, "Mismatch during CRL HEADER serialization"
+
+        # # We set the TBSCertList header
+        crl_length = self.__set_tbs_header()
+        self.__build_row(trace, in_memory)
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, "Mismatch during TBSCERTLIST HEADER serialization"
+
+        # # 1. We encode the version
+        self.__conditional_serialize([
+            partial(self.__set_version, 1),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__write_value_encoding, trace, in_memory)
+        ], trace, in_memory)
+
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during VERSION serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed}"
+
+        # 2. We encode the signature
+        self.__conditional_serialize([
+            partial(self.__set_signature_outer),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__set_signature_inner1),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__write_value_encoding, trace, in_memory),
+            partial(self.__set_signature_inner2),
+            partial(self.__build_row, trace, in_memory)
+        ], trace, in_memory)
+
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during SIGNATURE serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed}"
+        assert self.__SEQUENCE_LENGTH == 0, f"{self.__SEQUENCE_LENGTH}"
+
+        # 3. We encode the issuer
+        self.__conditional_serialize([
+            partial(self.__set_issuer_header),
+            partial(self.__build_row, trace, in_memory),
+        ], trace, in_memory)
+
+        for pair in self.__issuer:
+            (_, oid), (_, value) = pair.items()
+
+            self.__conditional_serialize([
+                partial(self.__set_issuer_header, True),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__set_issuer_header),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__set_issuer_OID, oid),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory),
+                partial(self.__set_issuer_value, value),
+                partial(self.__write_value_encoding, trace, in_memory)
+            ], trace, in_memory)
+
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during ISSUER serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed}"
+        assert self.__SEQUENCE_LENGTH == 0, f"{self.__SEQUENCE_LENGTH}"
+
+        # 4. We encode the current_update field
+        self.__conditional_serialize([
+            partial(self.__set_time_field, self.__interval[0]),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__write_value_encoding, trace, in_memory)
+        ], trace, in_memory)
+
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during CURRENT_UPDATE serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed}"
+
+        # 5. We encode the next_update field
+        self.__conditional_serialize([
+            partial(self.__set_time_field, self.__interval[1]),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__write_value_encoding, trace, in_memory)
+        ], trace, in_memory)
+
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during CURRENT_UPDATE serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed}"
+
+        # 6. We put the serials and perform non-revocation checks.
+        seq_length = self.__set_revoked_header()
+        self.__write_value_encoding(trace, in_memory)
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during REVOKEDCERTIFICATES HEADER serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed}"
+
+        self.__NUM_ROWS += 1
+        self.__SERIAL_SUBTRACE += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SEQUENCE_LENGTH = seq_length
         self.__build_row(trace, in_memory)
 
-        # We set the TBSCertList header
-        self.__set_tbs_header(offset)
-        self.__build_row(trace, in_memory)
+        for revoked_serial, revoked_time in self.__revocation_data:
+            self.__conditional_serialize([
+                partial(self.__set_revoked_cert_header),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__set_revoked_cert_serial, revoked_serial),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory),
+            ], trace, in_memory)
 
+            self.__conditional_serialize([
+                partial(self.__set_time_field, revoked_time, True),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory)
+            ], trace, in_memory)
+
+            assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during REVOKEDCERTIFICATES serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed} @ {revoked_serial}"
+        
+        # 7. We put the extensions as raw DER
+        self.__SERIAL_SUBTRACE += 1
+
+        while self.__CRL_LENGTH > 0:
+            self.__conditional_serialize([
+                partial(self.__set_extensions),
+                partial(self.__write_value_encoding, trace, in_memory)
+            ], trace, in_memory)
+
+        assert self.__raw[:len(self.__reconstructed)] == self.__reconstructed, f"Mismatch during EXTENSIONS serialization: {self.__raw[:len(self.__reconstructed)]} vs {self.__reconstructed}"
+
+        # 8. We mark end of CRL
+        self.__conditional_serialize([
+            partial(self.__set_hash_padding1),
+            partial(self.__write_value_encoding, trace, in_memory, False)
+        ], trace, in_memory)
+
+        self.__conditional_serialize([
+            partial(self.__set_hash_padding2, crl_length),
+            partial(self.__write_value_encoding, trace, in_memory, False)
+        ], trace, in_memory)
+
+        # 9. We peform the final hash round
+        self.__execute_hash_round(trace, in_memory)
+
+        out_hash = self.__REPRESENTATIVE[28:]
+        digest = b"".join(w.to_bytes(8, "big") for w in out_hash)
+        expected = sha256(self.__reconstructed[4:]).hexdigest()
+
+        assert expected == digest.hex(), f"Mismatch in HASH"
+
+        # 10. We do the signature verification
+        signature = 0
+        repr = 0
+        pub_key = [0, 0]
+
+        for i in range(32):
+            signature <<= 64
+            signature |= self.__SIGNATURE[i]
+
+            repr <<= 64
+            repr != self.__REPRESENTATIVE[i]
+
+            pub_key[1] <<= 64
+            pub_key[1] |= self.__PUBLIC_KEY[i+4]
+        for i in range(4):
+            pub_key[0] <<= 64
+            pub_key[0] |= self.__PUBLIC_KEY[i]
+
+        self.__signature_verifier.from_signed_message(repr, pub_key, signature)
+        verif_trace = self.__signature_verifier.build_trace(True)
+
+        reg_view = RegisterView(
+            (self.__BLOCK_ACCUMULATORS, 0, 128),
+            (self.__FIELD_VALUE, 0, 72),
+            (self.__REMAINING, 0, 212)
+        )
+
+        self.__SUBTRACE = 3
+        self.__SIGNATURE_SUBTRACE = 1
+        self.__SUBTRACE_STEP = 0
+
+        for row in verif_trace.as_list():
+            self.__NUM_ROWS += 1
+            
+            for col in range(72, 393):
+                reg_view[col - 72] = row[col]
+            self.__build_row(trace, in_memory)
+
+        completed_rows = self.__NUM_ROWS
+        for _ in range(completed_rows, next_power_of_two(completed_rows)):
+            self.__NUM_ROWS += 1
+            self.__build_row(trace, in_memory)
 
         return trace
     
-    def __set_crl_header(self) -> int:
-        self.__NUM_ROWS += 1
-        self.__SUBTRACE_STEP += 1
+    def __conditional_serialize(self, serialization_steps: list[Callable[[], None]], trace, in_memory):
+        if not self.__can_perform_hash_round():
+            for serialization_step in serialization_steps:
+                serialization_step()
+        else:
+            self.__execute_hash_round(trace, in_memory)
+
+            # Now we resume with serialization
+            self.__SUBTRACE_STEP = self.__SERIAL_SUBTRACE
+            for serialization_step in serialization_steps:
+                serialization_step()
+
+    def __execute_hash_round(self, trace, in_memory):
+        message = []
+        hashes = []
+
+        # Next we unpack the hashes
+        for index in range(4):
+            hashes.append(self.__REPRESENTATIVE[28+index] >> 32)
+            hashes.append(self.__REPRESENTATIVE[28+index] & 0xFFFFFFFF)
+
+        # Now we pad to a multiple of 256
+        self.__SUBTRACE = 2
+        self.__SUBTRACE_STEP = 0    # <-- This means we're padding before the actual trace
+        self.__HASH_SUBTRACE = 1
+
+        # First we shift left until BLOCK_COUNTER == 72 
+        while self.__EXTRA_COUNTER != 0:
+            for i in range(1, 128):
+                self.__BLOCK_ACCUMULATORS[i - 1] = self.__BLOCK_ACCUMULATORS[i]
+            self.__BLOCK_ACCUMULATORS[127] = 0
+            self.__EXTRA_COUNTER -= 1
+            self.__NUM_ROWS += 1
+            self.__build_row(trace, in_memory)
+
+        # while self.__NUM_ROWS % 256 != 0:
+        #     self.__NUM_ROWS += 1
+        #     self.__build_row(trace, in_memory)
+
+        for index in range(0, 64, 4):
+            block = (self.__BLOCK_ACCUMULATORS[index] << 24)    |   \
+                    (self.__BLOCK_ACCUMULATORS[index+1] << 16)  |   \
+                    (self.__BLOCK_ACCUMULATORS[index+2] << 8)   |   \
+                    (self.__BLOCK_ACCUMULATORS[index+3])
+            message.append(block)
+
+        self.__hasher.set_message_blocks(message, hashes)            
+        hash_trace = self.__hasher.build_trace(True)
+
+        # We repurpose the first 64 registers (as those are consumed)
+        for idx in range(64):
+            self.__FIELD_VALUE[idx] = 0
+
+        HASH_REGISTERS = RegisterView(
+            (self.__FIELD_VALUE, 0, 64),
+            (self.__REMAINING, 0, 205)
+        )
+
+        # Now we add the contents of the SHA trace
+        for row in hash_trace.as_list():
+            self.__NUM_ROWS += 1
+            self.__SUBTRACE_STEP += 1
+            
+            for col_idx in range(len(row)):
+                HASH_REGISTERS[col_idx] = row[col_idx]
+            self.__build_row(trace, in_memory)
+
+        # Cleanup : copy the hash, reset to zero, shift blocks
+        for idx in range(4):
+            self.__REPRESENTATIVE[31 - idx] = ((HASH_REGISTERS[267 - 2* idx] << 32) | HASH_REGISTERS[268 - 2* idx])
+        for idx in range(SHA_TRACE_WIDTH):
+            HASH_REGISTERS[idx] = 0
+
+        for idx in range(64):
+            self.__BLOCK_ACCUMULATORS[idx] = 0
         
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE = 1
+        self.__SUBTRACE_STEP = 0
+        self.__build_row(trace, in_memory)
+
+        # Reset the counter to its previous state (except the first 64 accumulators have been consumed)
+        while self.__EXTRA_COUNTER + self.__BLOCK_COUNTER != 128:
+            for i in range(127):
+                self.__BLOCK_ACCUMULATORS[127 - i] = self.__BLOCK_ACCUMULATORS[126 - i]
+            self.__BLOCK_ACCUMULATORS[0] = 0
+            self.__NUM_ROWS += 1
+            self.__EXTRA_COUNTER += 1
+            self.__build_row(trace, in_memory)
+        
+        # Now we reset the block counter and the extra counter
+        self.__BLOCK_COUNTER -= 64
+        self.__EXTRA_COUNTER += 64
+        self.__NUM_ROWS += 1
+        self.__build_row(trace, in_memory)
+
+    def __can_perform_hash_round(self) -> bool:
+        return self.__BLOCK_ACCUMULATORS[63] != 0
+
+    def __write_value_encoding(self, trace: Trace, in_memory: bool, update: bool = True):
+        while self.__FIELD_LENGTH > 0:
+            self.__update_accumulators_with_value_step(update)
+            self.__build_row(trace, in_memory)
+
+    def __update_accumulators_with_header(self, tag: int, length: int):
+        for idx in range(1,128):
+            self.__BLOCK_ACCUMULATORS[idx - 1] = self.__BLOCK_ACCUMULATORS[idx]        
+        self.__BLOCK_ACCUMULATORS[127] = tag
+        self.__reconstructed += tag.to_bytes(1)
+
+        for idx in range(1,128):
+            self.__BLOCK_ACCUMULATORS[idx - 1] = self.__BLOCK_ACCUMULATORS[idx]        
+        self.__BLOCK_ACCUMULATORS[127] = length
+        self.__reconstructed += length.to_bytes(1)
+
+        self.__CRL_LENGTH -= 2
+        self.__BLOCK_COUNTER += 2
+        self.__EXTRA_COUNTER -= 2
+
+    def __update_accumulators_with_value_step(self, update: bool = True):
+        for idx in range(1, 128):
+            self.__BLOCK_ACCUMULATORS[idx - 1] = self.__BLOCK_ACCUMULATORS[idx]
+        
+        self.__BLOCK_ACCUMULATORS[127] = self.__FIELD_VALUE[0]
+
+        if update:
+            self.__reconstructed += self.__FIELD_VALUE[0].to_bytes(1)
+
+        for idx in range(1, 72):
+            self.__FIELD_VALUE[idx - 1] = self.__FIELD_VALUE[idx]
+        
+        self.__FIELD_VALUE[71] = 0
+        self.__FIELD_LENGTH -= 1
+        self.__BLOCK_COUNTER += 1
+        self.__EXTRA_COUNTER -= 1
+
+        if update:
+            self.__CRL_LENGTH -= 1
+        self.__NUM_ROWS += 1
+
+        if self.__SEQUENCE_LENGTH > 0:
+            self.__SEQUENCE_LENGTH -= 1
+
+    def __reconstruct_crl_header(self) -> int:
+        # Reconstruct the CRL header, so that we may extract the TBS header
+
         # Set the total expected length
         if int(self.__raw[1]) > 128:
             len_in_bytes = int(self.__raw[1] & 0x7F)
         else:
             len_in_bytes = 0
 
-        self.__FIELD_LENGTH = len(self.__raw) - (len_in_bytes + 2)
-        self.__CRL_LENGTH = self.__FIELD_LENGTH
+        tl = utils.BuildTL(constants.SEQUENCE, len(self.__raw) - (len_in_bytes + 2))
+        self.__reconstructed += tl.to_bytes(
+            (tl.bit_length() + 7) // 8
+        )
 
-        tl = self.__build_tl(constants.SEQUENCE)
-
-        # Currently we operate under the assumption that the whole TLV will fit in 512-bits (1 SHA-256 Block)
-        index = 7
-        while tl > 0:
-            self.__FIELD_VALUE[index] = tl & 0xFFFFFFFFFFFFFFFF
-            self.__BLOCK_ACCUMULATORS[index + 1] = tl & 0xFFFFFFFFFFFFFFFF
-            tl >>= 64
-            index -= 1
-        
-        return len_in_bytes + 2
-
-    def __set_tbs_header(self, offset):
+    def __set_tbs_header(self):
         self.__NUM_ROWS += 1
+        self.__SUBTRACE = 1
         self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
 
+        offset = len(self.__reconstructed)
         if int(self.__raw[offset+1]) > 128:
             len_in_bytes = int(self.__raw[offset+1] & 0x7F)
         else:
@@ -201,40 +454,251 @@ class CrlTraceBuilder(TraceBuilder):
         else:
             tbs_length = int(self.__raw[offset+1])
 
-        self.__FIELD_LENGTH = tbs_length
-        self.__CRL_LENGTH -= (2 + len_in_bytes)
+        self.__CRL_LENGTH = tbs_length
 
-        tl = self.__build_tl(constants.SEQUENCE)
-        
-        index = 7
+        tl = utils.BuildTL(constants.SEQUENCE, tbs_length)
+        self.__reconstructed += tl.to_bytes(
+            (tl.bit_length() + 7) // 8
+        )
+
+        index = 127
+        counter = 0
+
+        # We set the TBS header. The only other header we expect to have length > 128 is the revoked list
         while tl > 0:
-            self.__FIELD_VALUE[index] = tl & 0xFFFFFFFFFFFFFFFF
-            tl >>= 64
+            self.__BLOCK_ACCUMULATORS[index] = tl & 0xFF
+            tl >>= 8
+            index -= 1
+            counter += 1
+            self.__BLOCK_COUNTER += 1
+            self.__EXTRA_COUNTER -= 1
+        return tbs_length + counter
+
+    def __set_version(self, version: int):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        self.__FIELD_VALUE[0] = version
+        self.__FIELD_LENGTH = 1
+        self.__update_accumulators_with_header(constants.INTEGER, 1)
+
+    def __set_signature_outer(self):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        if self.__SIGNATURE_ALGO == 1:
+            self.__SEQUENCE_LENGTH = 13
+            self.__update_accumulators_with_header(constants.SEQUENCE, 13)
+
+    def __set_signature_inner1(self):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        if self.__SIGNATURE_ALGO == 1:
+            oid = utils.OID2Hex(constants.OIDs["SHA256_RSA"])
+            self.__FIELD_LENGTH = 9
+            self.__SEQUENCE_LENGTH -= 2
+
+            value = int(oid, 16)
+            for idx in range(9):
+                self.__FIELD_VALUE[8 - idx] = value & 0xFF
+                value >>= 8 
+
+            self.__update_accumulators_with_header(constants.OID, 9)
+
+    def __set_signature_inner2(self):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        if self.__SIGNATURE_ALGO == 1:
+            self.__SEQUENCE_LENGTH -= 2
+
+            self.__update_accumulators_with_header(constants.NULL, 0)
+
+    def __set_issuer_header(self, is_set: bool = False):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        tag = constants.SET if is_set else constants.SEQUENCE
+
+        offset = len(self.__reconstructed) + 1
+        issuer_len = self.__raw[offset]
+
+        if self.__SEQUENCE_LENGTH == 0:
+            self.__SEQUENCE_LENGTH = issuer_len
+        else:
+            self.__SEQUENCE_LENGTH -= 2
+
+        self.__update_accumulators_with_header(tag, issuer_len)
+
+    def __set_issuer_OID(self, oid: str):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        self.__SEQUENCE_LENGTH -= 2
+
+        value = int(utils.OID2Hex(constants.OIDs[oid]), 16)
+
+        if oid == "CN":
+            self.__FIELD_LENGTH = 3
+
+            for index in range(3):
+                self.__FIELD_VALUE[2 - index] = value & 0xFF
+                value >>= 8
+
+            self.__update_accumulators_with_header(constants.OID, 3)
+
+    def __set_issuer_value(self, issuer: str):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        self.__SEQUENCE_LENGTH -= 2
+        self.__FIELD_LENGTH = len(issuer)
+
+        for index in range(len(issuer)):
+            self.__FIELD_VALUE[index] = int.from_bytes(issuer[index].encode('utf-8'))
+
+        self.__update_accumulators_with_header(constants.UTF8_STRING, len(issuer))
+
+    def __set_time_field(self, time: str, decrease_seq: bool = False):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        self.__FIELD_LENGTH = len(time)
+
+        if decrease_seq:
+            self.__SEQUENCE_LENGTH -= 2
+
+        for index in range(len(time)):
+            self.__FIELD_VALUE[index] = int.from_bytes(time[index].encode('utf-8'))
+
+        self.__update_accumulators_with_header(constants.UTC_TIME, len(time))
+
+    def __set_revoked_header(self):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        offset = len(self.__reconstructed)
+        if int(self.__raw[offset+1]) > 128:
+            len_in_bytes = int(self.__raw[offset+1] & 0x7F)
+        else:
+            len_in_bytes = 0
+
+        if len_in_bytes != 0:
+            seq_length = int(self.__raw[offset+2:offset+2+len_in_bytes].hex(), 16)
+        else:
+            seq_length = int(self.__raw[offset+1])
+
+        # self.__CRL_LENGTH -= (2 + len_in_bytes)
+        self.__FIELD_LENGTH = 2 + len_in_bytes
+
+        tl = utils.BuildTL(constants.SEQUENCE, seq_length)
+
+        index = 1 + len_in_bytes
+
+        # We set the TBS header. The only other header we expect to have length > 128 is the revoked list
+        while tl > 0:
+            self.__FIELD_VALUE[index] = tl & 0xFF
+            tl >>= 8
             index -= 1
 
-        # We add the TL header to the blocks
-        for index in range(8,-1,-1):
-            self.__BLOCK_ACCUMULATORS[index] += self.__FIELD_VALUE[index - 1] + self.__REMAINING[index + 1]
-            self.__REMAINING[index] = self.__BLOCK_ACCUMULATORS[index] // 2**64
-            self.__BLOCK_ACCUMULATORS[index] %= 2**64
+        return seq_length
 
-    def __build_tl(self, tag: int) -> int:
-        """Starting from a tag, constructs the TL header of a TLV field
-        """
-        tl = tag
+    def __set_revoked_cert_header(self):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
 
-        # Add the length
-        if self.__FIELD_LENGTH < 128:
-            tl <<= 8
-            tl |= self.__FIELD_LENGTH
-        else:
-            nr_bytes = ceil(ceil(log2(self.__FIELD_LENGTH)) / 8)
+        offset = len(self.__reconstructed)
+        seq_length = int(self.__raw[offset+1])
 
-            tl <<= 8
-            tl |= (0x80 | nr_bytes)
-            tl <<= (8 * nr_bytes)
-            tl |= self.__FIELD_LENGTH
-        return tl
+        self.__SEQUENCE_LENGTH -= 2
+        self.__update_accumulators_with_header(constants.SEQUENCE, seq_length)
+
+    def __set_revoked_cert_serial(self, serial: int):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+        self.__SEQUENCE_LENGTH -= 2
+
+        serial_length = (serial.bit_length() + 7) // 8
+        self.__FIELD_LENGTH = serial_length
+        
+        # Proving non-revocation --- at least 1 register must have an inverse
+        copy = serial
+        for idx in range(4):
+            self.__REMAINING[148 - idx] = serial & 0xFFFFFFFFFFFFFFFF
+            diff = self.__SERIAL[3 - idx] - self.__REMAINING[148 - idx]
+
+            if diff < 0:
+                diff += FIELD_MODULUS
+
+            if diff != 0:
+                self.__REMAINING[152 - idx] = get_modular_inverse(diff, FIELD_MODULUS)
+                self.__REMAINING[156 - idx] = diff * self.__REMAINING[152 - idx]        # This will be either 0 or 1
+
+            serial >>= 64
+        
+        self.__REMAINING[157] = self.__REMAINING[156] + self.__REMAINING[155] + self.__REMAINING[154] + self.__REMAINING[153]
+        
+        self.__REMAINING[158] = self.__REMAINING[157] // 2      # 2  1  1  0
+        self.__REMAINING[159] = self.__REMAINING[157] % 2       # 0  1  0  1
+
+        self.__REMAINING[160] = self.__REMAINING[158] // 2      # 1  0  0  0
+        self.__REMAINING[161] = self.__REMAINING[158] % 2       # 0  1  1  0
+
+        self.__REMAINING[162] = self.__REMAINING[160] // 2      # 0  0  0  0
+        self.__REMAINING[163] = self.__REMAINING[160] % 2       # 1  0  0  0
+
+        # Constraint: this should be either 1 or 2
+        self.__REMAINING[164] = self.__REMAINING[159] + self.__REMAINING[161] + self.__REMAINING[163]
+
+        serial = copy
+        for idx in range(serial_length):
+            self.__FIELD_VALUE[serial_length - idx - 1] = serial & 0xFF
+            serial >>= 8
+
+        self.__update_accumulators_with_header(constants.INTEGER, serial_length)
+
+    def __set_extensions(self):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+
+        offset = len(self.__reconstructed)
+        self.__FIELD_VALUE[0] = self.__raw[offset]
+        self.__FIELD_LENGTH = 1
+
+    def __set_hash_padding1(self):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        self.__FIELD_VALUE[0] = 0x80
+        self.__FIELD_LENGTH = 1
+    
+    def __set_hash_padding2(self, length):
+        self.__NUM_ROWS += 1
+        self.__SUBTRACE_STEP += 1
+        self.__SERIAL_SUBTRACE += 1
+
+        zero_count = (56 - ((length + 1) % 64)) % 64
+        bit_length = length * 8
+
+        len_in_bytes = 8
+        for idx in range(len_in_bytes):
+            self.__FIELD_VALUE[zero_count + len_in_bytes - idx - 1] = bit_length & 0xFF
+            bit_length >>= 8
+        
+        self.__FIELD_LENGTH = zero_count + len_in_bytes
 
     def __reset_registers(self):
         # State Machine registers
@@ -245,6 +709,8 @@ class CrlTraceBuilder(TraceBuilder):
         self.__HASH_SUBTRACE = 0
         self.__SERIAL_SUBTRACE = 0
         self.__SIGNATURE_SUBTRACE = 0
+        self.__BLOCK_COUNTER = 0
+        self.__EXTRA_COUNTER = 128
 
         # Input registers
         self.__SERIAL = [0] * 4
@@ -253,21 +719,17 @@ class CrlTraceBuilder(TraceBuilder):
         self.__SIGNATURE = [0] * 32
         
         # Serialization registers
-        self.__BLOCK_ACCUMULATORS = [0] * 17
-        self.__HASH = [0] * 4
+        self.__BLOCK_ACCUMULATORS = [0] * 128
+        self.__REPRESENTATIVE = [0] * 32
 
         self.__SEQUENCE_LENGTH = 0
         self.__CRL_LENGTH = 0
         self.__CRL_END = 0
-        self.__CRL_FIELD = 0
-        self.__FIELD_LENGTH = 0     # For sequences or otherwise multi-row fields
-
-        # Output registers
-        self.__OUT_HASH = [0] * 4
+        self.__FIELD_LENGTH = 0
 
         # From here is safe to repurpose
-        self.__FIELD_VALUE = [0] * 32   # 32 64-bit registers exhausts an empty accumulator
-        self.__REMAINING = [0] * 383
+        self.__FIELD_VALUE = [0] * 72
+        self.__REMAINING = [0] * 212
 
     def __build_registers(self) -> list[int]:
         """Converts the registers into a trace row.
@@ -277,17 +739,16 @@ class CrlTraceBuilder(TraceBuilder):
             self.__SUBTRACE,
             self.__SUBTRACE_STEP,
             self.__HASH_SUBTRACE, self.__SERIAL_SUBTRACE, self.__SIGNATURE_SUBTRACE,
+            self.__BLOCK_COUNTER, self.__EXTRA_COUNTER,
             *self.__SERIAL,
             self.__SIGNATURE_ALGO,
             *self.__PUBLIC_KEY,
             *self.__SIGNATURE,
-            *self.__OUT_HASH,
             *self.__BLOCK_ACCUMULATORS,
-            *self.__HASH,
+            *self.__REPRESENTATIVE,
             self.__SEQUENCE_LENGTH,
             self.__CRL_LENGTH,
             self.__CRL_END,
-            self.__CRL_FIELD,
             self.__FIELD_LENGTH,
             *self.__FIELD_VALUE,
             *self.__REMAINING,

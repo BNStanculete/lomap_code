@@ -7,6 +7,10 @@ class Sha256TraceBuilder(TraceBuilder):
         self.__trace_file = trace_file
         self.__hasAttestation = True
         self.__hasPadding = True
+        self.__reconstructed = b''
+
+    def debug(self):
+        return self.__reconstructed
 
     def toggleAttestation(self):
         """Toggles whether to include hash attestation in the trace.
@@ -35,6 +39,9 @@ class Sha256TraceBuilder(TraceBuilder):
         if len(message_block) != 16:
             raise ValueError("Please use this function only as part of larger traces.")
 
+        for block in message_block:
+            self.__reconstructed += block.to_bytes(4)
+
         self.__message_blocks = message_block
         self.__num_blocks = len(self.__message_blocks) // 16
         self.__reset_registers()
@@ -44,7 +51,7 @@ class Sha256TraceBuilder(TraceBuilder):
             self.__HASH[i] = hash[i]
 
     def build_trace(self, in_memory) -> Trace:
-        trace = Trace(self.__num_blocks)
+        trace = Trace()
         blocks_to_process = True
 
         # Set the initial row
@@ -87,8 +94,11 @@ class Sha256TraceBuilder(TraceBuilder):
 
         # Pad to the nearest power of two
         if self.__hasPadding:
-            completed_rows = (177 * self.__num_blocks + 5)
+            completed_rows = 177 * self.__num_blocks
+            if self.__hasAttestation:
+                completed_rows += 5
             for _ in range(completed_rows, next_power_of_two(completed_rows)):
+                self.__NUM_ROWS += 1
                 self.__build_row(trace, in_memory)
 
         return trace

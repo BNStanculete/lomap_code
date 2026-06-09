@@ -22,8 +22,10 @@ class RSA2048TraceBuilder(TraceBuilder):
             self.__HASH[i] = (representative >> (256 - 64 * (i + 1))) & 0xFFFFFFFFFFFFFFFF
 
         self.__E = [
-            (public_key[0] >> 128) & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,
-            public_key[0] & 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+            (public_key[0] >> 192) & 0xFFFFFFFFFFFFFFFF,
+            (public_key[0] >> 128) & 0xFFFFFFFFFFFFFFFF,
+            (public_key[0] >> 64) & 0xFFFFFFFFFFFFFFFF,
+            public_key[0] & 0xFFFFFFFFFFFFFFFF
         ]
 
     def togglePadding(self):

@@ -6,8 +6,8 @@
             3
         ],
         "RevokedCertificates": [
-            100,
-            100
+            10,
+            10
         ],
         "AvailableSignatures": [
             "RSA-2048"
@@ -16,6 +16,9 @@
     "MessageFlow": [
         {
             "Type": "CRLUpdate"
+        },
+        {
+            "Type": "Authentication"
         }
     ]
 }

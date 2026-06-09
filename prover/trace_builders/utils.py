@@ -15,6 +15,25 @@ def next_power_of_two(number: int) -> int:
         power_of_two *= 2
     return power_of_two
 
+def get_modular_inverse(number: int, modulus: int) -> int:
+    def extended_gcd(a: int, b: int):
+        if b == 0:
+            return a, 1, 0
+
+        gcd, x1, y1 = extended_gcd(b, a % b)
+        x = y1
+        y = x1 - (a // b) * y1
+        return gcd, x, y
+
+    gcd, x, _ = extended_gcd(number, modulus)
+
+    if gcd != 1:
+        raise ValueError(
+            f"Modular inverse does not exist for {number} modulo {modulus}"
+        )
+
+    return x % modulus
+
 class RegisterView:
     def __init__(self, *registers):
         self.registers = registers

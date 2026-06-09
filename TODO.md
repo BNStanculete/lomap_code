@@ -20,3 +20,11 @@
 ** Then we move to CRL trace.
 
 - Port to 128-bit field                                 * Joi - 21
+
+
+-----------------
+Fix sliding windong.
+        -> make it slide left -> right in BLOCK_ACCUMULATORS
+        -> verify that the hash is correct at the end
+        -> add the PKCS#1.5 encoding
+        -> verify signature
