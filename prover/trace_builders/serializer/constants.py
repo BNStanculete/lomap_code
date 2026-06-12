@@ -1,7 +1,33 @@
 
 # Trace Constants
-TRACE_WIDTH         = 475
+TRACE_WIDTH         = 399
 REGISTER_LIMIT      = pow(2, 64)
+
+OPERATION_CODES = {
+    "PaddingWithCounter": (0, 1),
+    "PaddingWithoutCounter": (0, 2),
+
+    "HeaderSerialization": (1, 0),
+    "FieldSerialization": (1, 1),
+    "AccumulatorUpdate": (1, 2),
+    "AccumulatorLeftAllignment": (1, 3),
+    "AccumulatorRightAllignment": (1, 4),
+    "PostHashBookkeeping": (1, 5),
+
+    "HashInputRow": (2, 0),
+    "HashFirstHalfRound": (2, 1),
+    "HashSecondHalfRound": (2, 2),
+    "HashScheduleUpdate": (2, 3),
+    "HashAggregation": (2, 4),
+    "HashCleanup": (2, 5),
+
+    "SignatureVerifInput": (3, 0),
+    "SignatureVerifMulti": (3, 1),
+    "SignatureVerifRed": (3, 2),
+    "SignatureVerifAttest": (3, 3)
+}
+
+FIELD_MODULUS = pow(2, 128) - 45 * pow(2, 40) + 1
 
 # X.509 TAGs
 INTEGER             = int('0x02', 16)

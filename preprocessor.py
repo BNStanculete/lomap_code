@@ -53,7 +53,13 @@ from cryptography import x509
 from json import load, dump
 from os.path import join
 
+from datetime import datetime, timezone
+
 import os
+import asn1crypto.x509 as asn1
+import asn1crypto.crl as asn1crl
+
+from asn1crypto.pem import unarmor
 
 def process_public_key(public_key):
     """Returns the public key numbers as a list of integers.
@@ -69,6 +75,136 @@ def process_public_key(public_key):
         else:
             return [numbers.e, numbers.n]
     return None
+
+def parse_subject_field(subject: str) -> list[dict]:
+    """Splits a subject field into a pair of X.509 items.
+
+    e.g. C=NL/CN=CA gets split into [
+        {"OID": "C", "Value": "NL"}, {"OID": "CN", "Value": "CA"}
+    ]
+    
+    Arguments:
+        subject (str): The one-liner string, as yielded by the function `rfc4514_string()`
+
+    Returns:
+        list[dict]: The parsed list of OID-Value pairs
+    """
+    oid_value_pairs = []
+    pair = {
+        "OID": "",
+        "Value": ""
+    }
+
+    for name_pair in subject.split(','):
+        for index, item in enumerate(name_pair.split("=")):        
+            if index % 2 == 0:
+                pair["OID"] = item
+            else:
+                pair["Value"] = item
+                oid_value_pairs.append(pair)
+                pair = {
+                    "OID": "",
+                    "Value": ""
+                }
+    return oid_value_pairs
+
+def convert_time_field(time: str) -> str:
+    """Converts local UTC time into X.509 format.
+    
+    Arguments:
+        time (str): local UTC time, as extracted from the X.509 object
+
+    Returns:
+        str: A serialization-ready representation
+    """
+    result = datetime.strptime(time, "%a %b %d %H:%M:%S %Y")
+    result = result.replace(tzinfo=timezone.utc)
+
+    return result.strftime("%y%m%d%H%M%SZ")
+
+def get_object_extensions(object_path: str, is_certificate: bool) -> bytes:
+    raw = None
+
+    with open(object_path, "rb") as file:
+        raw = file.read()
+
+    _, _, der_data = unarmor(raw)
+
+    if not is_certificate:
+        crl_obj = asn1crl.CertificateList.load(der_data)
+        tbs = crl_obj["tbs_cert_list"]
+
+        if "crl_extensions" in tbs:
+            return "".join(str(tbs["crl_extensions"].dump()))
+    else:
+        cert_obj = asn1.Certificate.load(der_data)
+        tbs = cert_obj["tbs_certificate"]
+
+        if "extensions" in tbs:
+            return "".join(str(tbs["extensions"].dump()))
+    return ""
+
+def get_object_lengths(object_path: str, is_certificate: bool = False) -> list[int]:
+    """Parses and X.509 object and extracts
+        - tbsCertificate length
+        - subject length (if present)
+        - issuer length (if present)
+        - revoked serials length (if present)
+    
+    Arguments:
+        object_path (str): The path to the PEM certificate / CRL.
+
+    Returns:
+        list[int]: A list of the extracted lengths, in that order.    
+    """
+    extracted_lengths = []
+    raw = None
+
+    with open(object_path, "rb") as file:
+        raw = file.read()
+
+    _, _, der_data = unarmor(raw)
+
+    if not is_certificate:
+        crl_obj = asn1crl.CertificateList.load(der_data)
+        tbs = crl_obj["tbs_cert_list"]
+
+        extracted_lengths = [
+            len(tbs.dump()),
+            len(tbs["issuer"].contents)
+        ]
+
+        for rdn in tbs["issuer"].chosen:
+            extracted_lengths.append(len(rdn.contents))
+            extracted_lengths.append(len(rdn[0].contents))
+
+        revoked = tbs["revoked_certificates"]
+
+        extracted_lengths.append(
+            len(revoked.contents) if revoked.native is not None else 0
+        )
+
+        if revoked:
+            for serial in revoked:
+                extracted_lengths.append(len(serial.contents))
+    else:
+        cert_obj = asn1.Certificate.load(der_data)
+        tbs = cert_obj["tbs_certificate"]
+
+        extracted_lengths = [
+            len(tbs.contents),
+            len(tbs["issuer"].contents),
+        ]
+        for rdn in tbs["issuer"].chosen:
+            extracted_lengths.append(len(rdn.contents))
+            extracted_lengths.append(len(rdn[0].contents))
+
+        extracted_lengths.append(len(tbs["subject"].contents))
+        for rdn in tbs["subject"].chosen:
+            extracted_lengths.append(len(rdn.contents))
+            extracted_lengths.append(len(rdn[0].contents))
+
+    return extracted_lengths
 
 if __name__ == '__main__':
     print("[+] Running the Data Collection System.")
@@ -260,6 +396,7 @@ if __name__ == '__main__':
                     with open(prover_certificate_path, "rb") as file:
                         prover_certificate = file.read()
                     prover_certificate = x509.load_pem_x509_certificate(prover_certificate)
+                lengths = get_object_lengths(issuing_CA_CRL)
 
                 # Populating prover serial and CA public key
                 tes_interface[test_case]["LOAPProver"][message]["ProverSerial"] = prover_certificate.serial_number
@@ -280,19 +417,36 @@ if __name__ == '__main__':
                 print("[+] Extracting CRL fields...")
                 tes_interface[test_case]["LOAPProver"][message]["Path"] = issuing_CA_CRL
                 tes_interface[test_case]["LOAPProver"][message]["CRLFields"] = {
-                    "Version": 2,
-                    "Issuer": crl.issuer.rfc4514_string(),
+                    "TBSLength": lengths[0],
+                    "Version": 1,
+                    "IssuerLength": lengths[1],
+                    "Issuer": parse_subject_field(crl.issuer.rfc4514_string()),
                     "SignatureAlgorithm": crl.signature_algorithm_oid.dotted_string,
                     "Signature": [int(crl.signature.hex(), 16)] if crl.signature_algorithm_oid._name.find("RSA") != -1 else utils.decode_dss_signature(crl.signature),
-                    "ThisUpdate": crl.last_update_utc.ctime(),
-                    "NextUpdate": crl.next_update_utc.ctime(),
+                    "ThisUpdate": convert_time_field(crl.last_update_utc.ctime()),
+                    "NextUpdate": convert_time_field(crl.next_update_utc.ctime()),
                     "RevokedSerials": [
                         {
                             "SerialNumber": rev.serial_number,
-                            "Date": rev.revocation_date_utc.ctime()
+                            "Date": convert_time_field(rev.revocation_date_utc.ctime())
                         } for rev in crl
                     ],
                 }
+
+                tes_interface[test_case]["LOAPProver"][message]["CRLFields"]["Extensions"] = \
+                    get_object_extensions(issuing_CA_CRL, False)
+
+                index = 2
+                for idx, item in enumerate(tes_interface[test_case]["LOAPProver"][message]["CRLFields"]["Issuer"]):
+                    tes_interface[test_case]["LOAPProver"][message]["CRLFields"]["Issuer"][idx]["Length"] = lengths[index]
+                    tes_interface[test_case]["LOAPProver"][message]["CRLFields"]["Issuer"][idx]["SubLength"] = lengths[index+1]
+                    index += 2
+                tes_interface[test_case]["LOAPProver"][message]["CRLFields"]["RevokedLength"] = lengths[index]
+                index += 1
+
+                for idx, item in enumerate(tes_interface[test_case]["LOAPProver"][message]["CRLFields"]["RevokedSerials"]):
+                    tes_interface[test_case]["LOAPProver"][message]["CRLFields"]["RevokedSerials"][idx]["Length"] = lengths[index]
+                    index += 1
  
             elif message.startswith("Authentication"):
                 print("[+] Collecting Chain Data...")
@@ -309,18 +463,21 @@ if __name__ == '__main__':
                     with open(tes_interface[test_case]["PKIVerifier"][next_in_chain]["Certificate"], "rb") as file:
                         certificate = file.read()
                     certificate = x509.load_pem_x509_certificate(certificate)
+                    lengths = get_object_lengths(tes_interface[test_case]["PKIVerifier"][next_in_chain]["Certificate"], True)
                     
                     print("[+] Updating parameters...")
                     tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain] = {
                         "Path": tes_interface[test_case]["PKIVerifier"][next_in_chain]["Certificate"],
+                        "TBSLength": lengths[0],
                         "Version": 2,
                         "Serial": certificate.serial_number,
                         "SignatureAlgorithm": certificate.signature_algorithm_oid.dotted_string,
                         "Signature": [int(certificate.signature.hex(), 16)] if certificate.signature_algorithm_oid._name.find("RSA") != -1 else utils.decode_dss_signature(certificate.signature),
-                        "Issuer": certificate.issuer.rfc4514_string(),
-                        "NotBefore": certificate.not_valid_before_utc.ctime(),
-                        "NotAfter": certificate.not_valid_after_utc.ctime(),
-                        "Subject": certificate.subject.rfc4514_string(),
+                        "IssuerLength": lengths[1],
+                        "Issuer": parse_subject_field(certificate.issuer.rfc4514_string()),
+                        "NotBefore": convert_time_field(certificate.not_valid_before_utc.ctime()),
+                        "NotAfter": convert_time_field(certificate.not_valid_after_utc.ctime()),
+                        "Subject": parse_subject_field(certificate.subject.rfc4514_string()),
                         "PublicKeyAlgorithm": certificate.public_key_algorithm_oid.dotted_string,
                         "PublicKey": process_public_key(certificate.public_key()),
                         "Extensions": {
@@ -339,6 +496,23 @@ if __name__ == '__main__':
                         }
                     }
 
+                    tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["ExtensionsRaw"] = \
+                        get_object_extensions(tes_interface[test_case]["PKIVerifier"][next_in_chain]["Certificate"], True)
+
+                    index = 2
+                    for idx, item in enumerate(tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["Issuer"]):
+                        tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["Issuer"][idx]["Length"] = lengths[index]
+                        tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["Issuer"][idx]["SubLength"] = lengths[index+1]
+                        index += 2
+                    tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["SubjectLength"] = lengths[index]
+                    index += 1
+
+                    for idx, item in enumerate(tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["Subject"]):
+                        tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["Subject"][idx]["Length"] = lengths[index]
+                        tes_interface[test_case]["LOAPProver"][message]["Certificates"][next_in_chain]["Subject"][idx]["SubLength"] = lengths[index+1]
+                        index += 2
+
+
                     if tes_interface[test_case]["PKIVerifier"][next_in_chain]["RevocationList"] != "":
                         print("[+] Loading CRL...")
                         with open(tes_interface[test_case]["PKIVerifier"][next_in_chain]["RevocationList"], "rb") as file:
@@ -346,21 +520,39 @@ if __name__ == '__main__':
                         crl = x509.load_pem_x509_crl(crl)
 
                         crl_issuer = tes_interface[test_case]["PKIVerifier"][next_in_chain]["NextInChain"]
+                        lengths = get_object_lengths(tes_interface[test_case]["PKIVerifier"][next_in_chain]["RevocationList"])
+
                         tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer] = {
                             "Path": tes_interface[test_case]["PKIVerifier"][next_in_chain]["RevocationList"],
-                            "Version": 2,
+                            "TBSLength": lengths[0],
+                            "Version": 1,
                             "SignatureAlgorithm": crl.signature_algorithm_oid.dotted_string,
-                            "Issuer": crl.issuer.rfc4514_string(),
+                            "IssuerLength": lengths[1],
+                            "Issuer": parse_subject_field(crl.issuer.rfc4514_string()),
                             "Signature": [int(crl.signature.hex(), 16)] if crl.signature_algorithm_oid._name.find("RSA") != -1 else utils.decode_dss_signature(crl.signature),
-                            "ThisUpdate": crl.last_update_utc.ctime(),
-                            "NextUpdate": crl.next_update_utc.ctime(),
+                            "ThisUpdate": convert_time_field(crl.last_update_utc.ctime()),
+                            "NextUpdate": convert_time_field(crl.next_update_utc.ctime()),
                             "RevokedSerials": [
                                 {
                                     "SerialNumber": rev.serial_number,
-                                    "Date": rev.revocation_date_utc.ctime()
+                                    "Date": convert_time_field(rev.revocation_date_utc.ctime())
                                 } for rev in crl
                             ],
                         }
+                        tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer]["Extensions"] = \
+                            get_object_extensions(tes_interface[test_case]["PKIVerifier"][next_in_chain]["RevocationList"], False)
+
+                        index = 2
+                        for idx, item in enumerate(tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer]["Issuer"]):
+                            tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer]["Issuer"][idx]["Length"] = lengths[index]
+                            tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer]["Issuer"][idx]["SubLength"] = lengths[index+1]
+                            index += 2
+                        tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer]["RevokedLength"] = lengths[index]
+                        index += 1
+
+                        for idx, item in enumerate(tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer]["RevokedSerials"]):
+                            tes_interface[test_case]["LOAPProver"][message]["CRLs"][crl_issuer]["RevokedSerials"][idx]["Length"] = lengths[index]
+                            index += 1
 
                     next_in_chain = tes_interface[test_case]["PKIVerifier"][next_in_chain]["NextInChain"]
 

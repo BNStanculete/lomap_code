@@ -5,7 +5,6 @@
 
 - RSA2048 Constraints
 - Message Authentication Trace (Combine SHA256 + RSA2048)
-- CRL Serializer Trace (*)                              * DEADLINE : 22.05
 - CRL Serializer Constraints                            * DEADLINE : 02.06
 - Certificate Serializer Trace (*)
 - Certificate Serializer Constraints
@@ -21,10 +20,5 @@
 
 - Port to 128-bit field                                 * Joi - 21
 
-
------------------
-Fix sliding windong.
-        -> make it slide left -> right in BLOCK_ACCUMULATORS
-        -> verify that the hash is correct at the end
-        -> add the PKCS#1.5 encoding
-        -> verify signature
+----------------------
+FIX RSA-2048 trace generator (maybe rework from the ground up.)

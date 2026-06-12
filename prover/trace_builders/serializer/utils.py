@@ -24,7 +24,7 @@ def OID2Hex(oid: str) -> str:
 
     return hex_output
 
-def BuildTL(tag: int, length: int) -> int:
+def BuildTL(tag: int, length: int) -> list[int]:
     """Starting from a tag, constructs the TL header of a TLV field
     """
     tl = tag
@@ -40,4 +40,10 @@ def BuildTL(tag: int, length: int) -> int:
         tl |= (0x80 | nr_bytes)
         tl <<= (8 * nr_bytes)
         tl |= length
-    return tl
+    
+    bytes = []
+    while tl > 0:
+        bytes.append(tl & 0xFF)
+        tl >>= 8
+
+    return bytes[::-1]

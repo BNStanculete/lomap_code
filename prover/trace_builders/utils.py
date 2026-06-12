@@ -1,5 +1,7 @@
 # Copyright Bogdan Stanculete 2026. All Rights Reserved.
 
+FIELD_MODULUS = pow(2, 251) + 17 * pow(2, 192) + 1
+
 def next_power_of_two(number: int) -> int:
     """Computes the next power of two that is >= the provided number.
 
@@ -15,7 +17,7 @@ def next_power_of_two(number: int) -> int:
         power_of_two *= 2
     return power_of_two
 
-def get_modular_inverse(number: int, modulus: int) -> int:
+def get_modular_inverse(number: int, modulus: int = FIELD_MODULUS) -> int:
     def extended_gcd(a: int, b: int):
         if b == 0:
             return a, 1, 0

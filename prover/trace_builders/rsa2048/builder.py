@@ -1,392 +1,234 @@
-from prover.trace_builders import TraceBuilder, Trace, RegisterView, next_power_of_two
+from prover.trace_builders import TraceBuilder, Trace, next_power_of_two
+from prover.trace_builders.utils import FIELD_MODULUS
 from . import constants
-from copy import deepcopy
 
 class RSA2048TraceBuilder(TraceBuilder):
-    def __init__(self, trace_file: str):
-        super().__init__()
+    def build_trace(self, in_memory):
+        trace = Trace()
+
+        # Build the initial row
+        self.__build_row(trace, in_memory)
+
+        for idx in range(3, -1, -1):
+            # We exhaust self.__E in LSB order.
+
+            if self.__can_terminate_early(idx):
+                # We simply exhaust the current register
+                while self.__E[idx] > 0:
+                    self.__build_SQM_step(idx, trace, in_memory)
+                break
+            else:
+                for _ in range(64):
+                    self.__build_SQM_step(idx, trace, in_memory)
+
+        assert self.__HASH == self.__REPRESENTATIVE[28:]
+
+        # Final padding
+        if self.__hasPadding:
+            self.__pad_rows(trace, in_memory)
+
+        return trace
+
+    def set_input(self, representative: int, public_key: list[int, int], signature: int):
         self.__reset_registers()
-        self.__hasPadding = True
-        self.__trace_file = trace_file    
+        self.__NUM_ROWS = 1
+        self.__REPRESENTATIVE[-1] = 1
 
-    def from_signed_message(self, representative: int, public_key: tuple[int, int], signature: int):
-        """Initialize the trace builder using the public information of a signed message.
-        """
-        self.__reset_registers()
+        for idx in range(4):
+            self.__HASH[idx] = (representative >> (192 - 64 * idx)) & constants.REGISTER_MASK
+            self.__E[idx] = (public_key[0] >> (192 - 64 * idx)) & constants.REGISTER_MASK
 
-        for i in range(32):
-            self.__N[i] = (public_key[1] >> (2048 - 64 * (i + 1))) & 0xFFFFFFFFFFFFFFFF
-            self.__SIGNATURE[i] = (signature >> (2048 - 64 * (i + 1))) & 0xFFFFFFFFFFFFFFFF
+        for idx in range(32):
+            self.__N[idx] = (public_key[1] >> (1984 - 64 * idx)) & constants.REGISTER_MASK
+            self.__SIGNATURE[idx] = (signature >> (1984 - 64 * idx)) & constants.REGISTER_MASK
 
-        for i in range(4):
-            self.__HASH[i] = (representative >> (256 - 64 * (i + 1))) & 0xFFFFFFFFFFFFFFFF
-
-        self.__E = [
-            (public_key[0] >> 192) & 0xFFFFFFFFFFFFFFFF,
-            (public_key[0] >> 128) & 0xFFFFFFFFFFFFFFFF,
-            (public_key[0] >> 64) & 0xFFFFFFFFFFFFFFFF,
-            public_key[0] & 0xFFFFFFFFFFFFFFFF
-        ]
+        # We also keep the bigint values to avoid recombinations later.
+        self.__modulus = public_key[1]
+        self.__signature = signature
+        self.__representative = 1
 
     def togglePadding(self):
         """Toggles whether to pad the trace to the nearest power of two.
         """
         self.__hasPadding = not self.__hasPadding
 
-    def build_trace(self, in_memory) -> Trace:
-        trace = Trace()
-        
-        # Build the first 64 rows attesting to signature < N
-        self.__build_initial_attestation(trace, in_memory)
+    def __build_SQM_step(self, e_idx: int, trace, in_memory):
+        # 1) Extract the current bit of E
+        self.__NEXT_E = self.__E[e_idx] // 2
+        self.__BIT_E = self.__E[e_idx] % 2
 
-        # The next 8192 * log2 e rows attest to the SQM
-        e_copy = deepcopy(self.__E)
+        # 2) If the current bit is 1, multiply SIGNATURE with REPRESENTATIVE, otherwise just copy the previous row
+        if self.__BIT_E == 1:
+            for signature_index in range(32):
+                for representative_index in range(32):
+                    self.__RESULT[1 + signature_index + representative_index] += self.__SIGNATURE[signature_index] * self.__REPRESENTATIVE[representative_index]
+                    assert self.__RESULT[1 + signature_index + representative_index] < FIELD_MODULUS, f"Overflow at indexes {signature_index} and {representative_index}"
 
-        # We initialize BASE to SIGNATURE and REPRESENTATIVE to 1
-        self.__BASE = deepcopy(self.__SIGNATURE)
-        self.__REPRESENTATIVE[-1] = 1
+            # Now we calculate the carries and update the results
+            for idx in range(63, -1, -1):
+                self.__RESULT[idx] += self.__CARRY[idx] if idx != 63 else 0
+                
+                if idx > 0:
+                    self.__CARRY[idx - 1] = self.__RESULT[idx] // constants.REGISTER_LIMIT
+    
+                self.__RESULT[idx] %= constants.REGISTER_LIMIT
+            self.__build_step_rows(trace, in_memory)
 
-        for pos in range(3,-1,-1):
-            current = e_copy[pos]
+            # Now we reduce everything modulo N. For that, we compute the quotient using bigint
+            self.__representative *= self.__signature
+            quotient = self.__representative // self.__modulus
+            self.__representative %= self.__modulus
 
-            if e_copy[:pos].count(0) == pos:
-                # No more registers afterwards
-                # We can simply exhaust this one
-                while current > 0:
-                    current = self.__build_SQM_step(current, trace, in_memory)
-                break
-            else:
-                # There are still non-zero registers
-                # We perform mandatory 64 steps
-                for _ in range(64):
-                    current = self.__build_SQM_step(current, trace, in_memory)
+            # Now we simply set the quotient in register
+            self.__CARRY = [0] * 63
+            
+            for idx in range(32):
+                self.__QUOTIENT[idx] = (quotient >> (1984 - 64 * idx)) & constants.REGISTER_MASK
 
-        # Pad to the nearest power of two
-        if self.__hasPadding:
-            completed_rows = trace.get_length()
-            for _ in range(completed_rows, next_power_of_two(completed_rows)):
-                self.__build_row(trace, in_memory)
+            # Note that this might produce negatives. For that, we use carries
+            for modulus_index in range(32):
+                for quotient_index in range(32):
+                    self.__RESULT[1 + modulus_index + quotient_index] -= self.__N[modulus_index] * self.__QUOTIENT[quotient_index]
 
-        return trace
+            for idx in range(63, -1, -1):
+                if idx != 63:
+                    self.__RESULT[idx] -= self.__CARRY[idx]
 
-    def __reset_registers(self):
-        self.__HASH = [0] * 4
-        self.__N = [0] * 32
-        self.__E = [0, 0, 0, 0]
-        self.__SIGNATURE = [0] * 32
-        self.__NEXT_E = [0]
-        self.__BIT_E = [0]
-        self.__BASE = [0] * 32
-        self.__REPRESENTATIVE = [0] * 32
-        self.__RESULT = [0] * 34
-        self.__CARRY = [0] * 33
-        self.__QUOTIENT = [0]
-        self.__REMAINING = [0] * 187
+                if idx > 0 and self.__RESULT[idx] < 0:
+                    borrow = (-self.__RESULT[idx] + constants.REGISTER_LIMIT - 1) // constants.REGISTER_LIMIT
+                    self.__RESULT[idx] += borrow * constants.REGISTER_LIMIT
+                    self.__CARRY[idx - 1] = borrow
 
-    def __build_SQM_step(self, current_e: int, trace: Trace, in_memory: bool) -> int:
-        # First row of each step also updates the E registers
-        self.__BIT_E[0] = current_e % 2
-        self.__NEXT_E[0] = current_e // 2
+                    assert self.__RESULT[idx] >= 0 and self.__RESULT[idx] < constants.REGISTER_LIMIT, f"Wrong reduction at index {idx}"
 
-        # Next 4096 rows attest to BASE * REPRESENTATIVE
-        if self.__BIT_E[0] == 0:
-            for _ in range(4096):
-                self.__build_row(trace, in_memory)
+            for idx in range(32):
+                assert self.__RESULT[idx] == 0, f"Wrong modular reduction at index {idx}"                    
+
+            # We also copy the upper 32-limbs into representative
+            for idx in range(32):
+                self.__REPRESENTATIVE[idx] = self.__RESULT[32 + idx]
+            self.__E[e_idx] = self.__NEXT_E
+
+            self.__build_step_rows(trace, in_memory)
         else:
-            for multiplier in range(32):
-                if multiplier > 0:
-                    # Shift all registers 1 step
-                    for i in range(1, 34):
-                        self.__RESULT[i - 1] = self.__RESULT[i]
-                    self.__RESULT[33] = 0
-
-                # -- Multiply the next register
-                for i in range(0, 32):
-                    aux = self.__RESULT[33 - i] + self.__REPRESENTATIVE[31 - i] * self.__BASE[multiplier]
-                    
-                    if i > 0:
-                        aux += self.__CARRY[33 - i]
-
-                    self.__RESULT[33 - i] = aux % constants.REGISTER_LIMIT
-                    self.__CARRY[32 - i] = aux // constants.REGISTER_LIMIT
-                
-                self.__RESULT[1] += self.__CARRY[1]
-
-                self.__CARRY[0] = self.__RESULT[1] // constants.REGISTER_LIMIT
-                self.__RESULT[1] = self.__RESULT[1] % constants.REGISTER_LIMIT
-
-                self.__RESULT[0] += self.__CARRY[0]
-
-                # -- Attest to size (32 rows / multiplication step)
-                for attestation_row in range(32):
-                    if attestation_row == 0:
-                        for i in range(34):
-                            self.__REMAINING[i] = self.__RESULT[i] // 2
-                        for i in range(33):
-                            self.__REMAINING[34 + i] = self.__CARRY[i] // 2
-                    else:
-                        for i in range(67):
-                            self.__REMAINING[i] = self.__REMAINING[67 + i] // 2
-                    for i in range(67):
-                        self.__REMAINING[67 + i] = self.__REMAINING[i] // 2
-                    self.__build_row(trace, in_memory)
-
-                # -- Reduce everything modulo N
-                for offset in range(3):
-                    if offset == 0:
-                        # Estimate the quotient
-                        big_result = 0
-                        big_n = 0
-                        for i in range(32):
-                            big_result += self.__RESULT[i + offset]
-                            big_n += self.__N[i]
-
-                            if i < 31:
-                                big_result *= constants.REGISTER_LIMIT
-                                big_n *= constants.REGISTER_LIMIT
-
-                        self.__QUOTIENT[0] = big_result // big_n
-
-                        for i in range(31, -1, -1):
-                            self.__RESULT[i] -= self.__QUOTIENT[0] * self.__N[i]
-
-                            if i > 0 and self.__RESULT[i] < 0:
-                                carry = (-self.__RESULT[i] + constants.REGISTER_LIMIT - 1) // constants.REGISTER_LIMIT
-                                
-                                self.__RESULT[i - 1] -= carry
-                                self.__RESULT[i] += carry * constants.REGISTER_LIMIT
-                                self.__CARRY[i - 1] = carry
-                    else:
-                        # Estimate the quotient
-                        big_result = self.__RESULT[offset - 1] * constants.REGISTER_LIMIT
-                        big_n = 0
-                        for i in range(32):
-                            big_result += self.__RESULT[i + offset]
-                            big_n += self.__N[i]
-
-                            if i < 31:
-                                big_result *= constants.REGISTER_LIMIT
-                                big_n *= constants.REGISTER_LIMIT
-
-                        self.__QUOTIENT[0] = big_result // big_n
-
-                        for i in range(31, -1, -1):
-                            self.__RESULT[i + offset] -= self.__QUOTIENT[0] * self.__N[i]
-
-                            if i == 0 and self.__RESULT[i + offset] < 0:
-                                # Carry must be self.__RESULT[i - 1]
-
-                                self.__CARRY[i + offset - 1] = self.__RESULT[i + offset - 1]
-                                self.__RESULT[i + offset] += self.__RESULT[i + offset - 1] * constants.REGISTER_LIMIT
-                                self.__RESULT[i + offset - 1] = 0
-                            elif self.__RESULT[i + offset] < 0:
-                                carry = (-self.__RESULT[i + offset] + constants.REGISTER_LIMIT - 1) // constants.REGISTER_LIMIT
-
-                                self.__RESULT[i + offset - 1] -= carry
-                                self.__RESULT[i + offset] += carry * constants.REGISTER_LIMIT
-                                self.__CARRY[i + offset - 1] = carry
-
-                    for i in range(34):
-                        assert self.__RESULT[i] >= 0, f"Invalid trace at {offset} and {multiplier} for base: {self.__RESULT[i]}"
-                    
-                    # We attest that QUOTIENT, CARRY and RESULT are still valid numbers
-                    for attestation_row in range(32):
-                        if attestation_row == 0:
-                            for i in range(32):
-                                self.__REMAINING[i] = self.__RESULT[i + offset] // 2
-                            for i in range(31):   
-                                self.__REMAINING[32 + i] = self.__CARRY[i + offset] // 2
-                            self.__REMAINING[63] = self.__QUOTIENT[0] // 2
-                        else:
-                            for i in range(64):
-                                self.__REMAINING[i] = self.__REMAINING[64 + i] // 2
-                        for i in range(64):
-                            self.__REMAINING[64 + i] = self.__REMAINING[i] // 2
-                        self.__build_row(trace, in_memory)
-            
-            # Copy in REPRESENTATIVE
-            self.__REPRESENTATIVE = deepcopy(self.__RESULT[2:])
-            self.__RESULT = [0] * 34
-            self.__build_row(trace, in_memory)
-
-        # Next 4096 rows attest to BASE * BASE
-        for multiplier in range(32):
-            if multiplier > 0:
-                # Shift all registers 1 step
-                for i in range(1, 34):
-                    self.__RESULT[i - 1] = self.__RESULT[i]
-                self.__RESULT[33] = 0
-
-            # -- Multiply the next register
-            for i in range(0, 32):
-                aux = self.__RESULT[33 - i] + self.__BASE[31 - i] * self.__BASE[multiplier]
-                
-                if i > 0:
-                    aux += self.__CARRY[33 - i]
-
-                self.__RESULT[33 - i] = aux % constants.REGISTER_LIMIT
-                self.__CARRY[32 - i] = aux // constants.REGISTER_LIMIT
-            
-            self.__RESULT[1] += self.__CARRY[1]
-
-            self.__CARRY[0] = self.__RESULT[1] // constants.REGISTER_LIMIT
-            self.__RESULT[1] = self.__RESULT[1] % constants.REGISTER_LIMIT
-
-            self.__RESULT[0] += self.__CARRY[0]
-
-            # -- Attest to size (32 rows / multiplication step)
-            for attestation_row in range(32):
-                if attestation_row == 0:
-                    for i in range(34):
-                        self.__REMAINING[i] = self.__RESULT[i] // 2
-                    for i in range(33):
-                        self.__REMAINING[34 + i] = self.__CARRY[i] // 2
-                else:
-                    for i in range(67):
-                        self.__REMAINING[i] = self.__REMAINING[67 + i] // 2
-                for i in range(67):
-                    self.__REMAINING[67 + i] = self.__REMAINING[i] // 2
+            self.__E[e_idx] = self.__NEXT_E
+            for _ in range(256):
+                self.__NUM_ROWS += 1
                 self.__build_row(trace, in_memory)
 
-            # -- Reduce everything modulo N
-            for offset in range(3):
-                if offset == 0:
-                    # Estimate the quotient
-                    big_result = 0
-                    big_n = 0
-                    for i in range(32):
-                        big_result += self.__RESULT[i + offset]
-                        big_n += self.__N[i]
+        # Now we square the SIGNATURE
+        self.__CARRY = [0] * 63
+        self.__RESULT = [0] * 64
 
-                        if i < 31:
-                            big_result *= constants.REGISTER_LIMIT
-                            big_n *= constants.REGISTER_LIMIT
+        # In practice, this should fit in 128-bit field.
+        for signature_index in range(32):
+            for signature_index2 in range(32):
+                self.__RESULT[1 + signature_index + signature_index2] += self.__SIGNATURE[signature_index] * self.__SIGNATURE[signature_index2]
+                assert self.__RESULT[1 + signature_index + signature_index2] < FIELD_MODULUS, f"Overflow at indexes {signature_index} and {signature_index2}"
 
-                    self.__QUOTIENT[0] = big_result // big_n
+        # Now we calculate the carries and update the results
+        for idx in range(63, -1, -1):
+            self.__RESULT[idx] += self.__CARRY[idx] if idx != 63 else 0
+            
+            if idx > 0:
+                self.__CARRY[idx - 1] = self.__RESULT[idx] // constants.REGISTER_LIMIT
 
-                    for i in range(31, -1, -1):
-                        self.__RESULT[i] -= self.__QUOTIENT[0] * self.__N[i]
+            self.__RESULT[idx] %= constants.REGISTER_LIMIT
+        self.__build_step_rows(trace, in_memory)
 
-                        if i > 0 and self.__RESULT[i] < 0:
-                            carry = (-self.__RESULT[i] + constants.REGISTER_LIMIT - 1) // constants.REGISTER_LIMIT
-                            
-                            self.__RESULT[i - 1] -= carry
-                            self.__RESULT[i] += carry * constants.REGISTER_LIMIT
-                            self.__CARRY[i - 1] = carry
-                else:
-                    # Estimate the quotient
-                    big_result = self.__RESULT[offset - 1] * constants.REGISTER_LIMIT
-                    big_n = 0
-                    for i in range(32):
-                        big_result += self.__RESULT[i + offset]
-                        big_n += self.__N[i]
+        # Now we reduce everything modulo N. For that, we compute the quotient using bigint
+        self.__signature *= self.__signature
+        quotient = self.__signature // self.__modulus
+        self.__signature %= self.__modulus
 
-                        if i < 31:
-                            big_result *= constants.REGISTER_LIMIT
-                            big_n *= constants.REGISTER_LIMIT
+        # Now we simply set the quotient in register
+        self.__CARRY = [0] * 63
+        
+        for idx in range(32):
+            self.__QUOTIENT[idx] = (quotient >> (1984 - 64 * idx)) & constants.REGISTER_MASK
 
-                    self.__QUOTIENT[0] = big_result // big_n
+        # Note that this might produce negatives. For that, we use carries
+        for modulus_index in range(32):
+            for quotient_index in range(32):
+                self.__RESULT[1 + modulus_index + quotient_index] -= self.__N[modulus_index] * self.__QUOTIENT[quotient_index]
 
-                    for i in range(31, -1, -1):
-                        self.__RESULT[i + offset] -= self.__QUOTIENT[0] * self.__N[i]
+        for idx in range(63, -1, -1):
+            if idx != 63:
+                self.__RESULT[idx] -= self.__CARRY[idx]
 
-                        if i == 0 and self.__RESULT[i + offset] < 0:
-                            # Carry must be self.__RESULT[i - 1]
+            if idx > 0 and self.__RESULT[idx] < 0:
+                borrow = (-self.__RESULT[idx] + constants.REGISTER_LIMIT - 1) // constants.REGISTER_LIMIT
+                self.__RESULT[idx] += borrow * constants.REGISTER_LIMIT
+                self.__CARRY[idx - 1] = borrow
 
-                            self.__CARRY[i + offset - 1] = self.__RESULT[i + offset - 1]
-                            self.__RESULT[i + offset] += self.__RESULT[i + offset - 1] * constants.REGISTER_LIMIT
-                            self.__RESULT[i + offset - 1] = 0
-                        elif self.__RESULT[i + offset] < 0:
-                            carry = (-self.__RESULT[i + offset] + constants.REGISTER_LIMIT - 1) // constants.REGISTER_LIMIT
+                assert self.__RESULT[idx] >= 0 and self.__RESULT[idx] < constants.REGISTER_LIMIT, f"Wrong reduction at index {idx}"
 
-                            self.__RESULT[i + offset - 1] -= carry
-                            self.__RESULT[i + offset] += carry * constants.REGISTER_LIMIT
-                            self.__CARRY[i + offset - 1] = carry
-                
-                for i in range(34):
-                    assert self.__RESULT[i] >= 0, f"Invalid trace at {offset} and {multiplier} for base: {self.__RESULT[i]}"
-                    
-                # We attest that QUOTIENT, CARRY and RESULT are still valid numbers
-                for attestation_row in range(32):
-                    if attestation_row == 0:
-                        for i in range(32):
-                            self.__REMAINING[i] = self.__RESULT[i + offset] // 2
-                        for i in range(31):   
-                            self.__REMAINING[32 + i] = self.__CARRY[i + offset] // 2
-                        self.__REMAINING[63] = self.__QUOTIENT[0] // 2
-                    else:
-                        for i in range(64):
-                            self.__REMAINING[i] = self.__REMAINING[64 + i] // 2
-                    for i in range(64):
-                        self.__REMAINING[64 + i] = self.__REMAINING[i] // 2
-                    self.__build_row(trace, in_memory)
+        for idx in range(32):
+            assert self.__RESULT[idx] == 0, f"Wrong modular reduction at index {idx}"                    
 
-        # Copy in REPRESENTATIVE
-        self.__BASE = deepcopy(self.__RESULT[2:])
-        self.__RESULT = [0] * 34
+        # We also copy the upper 32-limbs into SIGNATURE
+        for idx in range(32):
+            self.__SIGNATURE[idx] = self.__RESULT[32 + idx]
+        self.__build_step_rows(trace, in_memory)
+
+        # Reset the result and carry
+        self.__RESULT = [0] * 64
+        self.__CARRY = [0] * 63
+
+
+    def __build_step_rows(self, trace, in_memory):
+        # Now we set the initial values of the ATTESTORS. their job is to attest that each number is 64-bit
+        for idx in range(64):
+            self.__ATTESTORS[idx] = self.__RESULT[idx] // 2
+            
+            if idx < 63:
+                self.__ATTESTORS[64 + idx] = self.__CARRY[idx] // 2
+
+        # We build the multiplication row
+        self.__NUM_ROWS += 1
         self.__build_row(trace, in_memory)
 
-        return self.__NEXT_E[0]
-
-    def __build_initial_attestation(self, trace: Trace, in_memory: bool):
-        # -- Perform register remapping --
-        REMAINING = RegisterView(
-            (self.__NEXT_E, 0, 1),
-            (self.__BIT_E, 0, 1),
-            (self.__BASE, 0, 32),
-            (self.__REPRESENTATIVE, 0, 30))
-
-        NEXT = RegisterView(
-            (self.__REPRESENTATIVE, 30, 2),
-            (self.__RESULT, 0, 34),
-            (self.__CARRY, 0, 28))
-
-        BIT = RegisterView(
-            (self.__CARRY, 28, 5),
-            (self.__REMAINING, 0, 59))
-
-        BIT_LT = RegisterView(
-            (self.__REMAINING, 59, 32))
-
-        BIT_GT = RegisterView(
-            (self.__REMAINING, 91, 32))
-        
-        REGISTER_LT = RegisterView(
-            (self.__REMAINING, 123, 32))
-
-        SET_LT = RegisterView(
-            (self.__REMAINING, 155, 32))
-
-        for row in range(64):
-            # -- Initialize the Remaining registers to the corresponding values --
-            if row == 0:
-                for i in range(32):
-                    REMAINING[i] = self.__N[i]
-                    REMAINING[i + 32] = self.__SIGNATURE[i]
-            else:
-                for i in range(64):
-                    REMAINING[i] = deepcopy(NEXT[i])
-
-            # -- Execute row
-            for i in range(64):
-                NEXT[i] = REMAINING[i] // 2
-                BIT[i] = REMAINING[i] % 2
+        # Next 63 rows just update the ATTESTORS. If the registers are indeed 64-bit, the final ATTESTOR must be 0
+        for _ in range(63):
+            self.__NUM_ROWS += 1
             
-            for i in range(32):
-                BIT_LT[i] = (1 - BIT[32 + i]) * BIT[i]
-                BIT_GT[i] = BIT[32 + i] * (1 - BIT[i])
-
-                if row == 0:
-                    REGISTER_LT[i] = (1 - BIT_LT[i] - BIT_GT[i]) + 2 * BIT_GT[i]
-                else:
-                    REGISTER_LT[i] = (1 - BIT_LT[i] - BIT_GT[i]) * REGISTER_LT[i] + 2 * BIT_GT[i]
-
-            SET_LT[0] = REGISTER_LT[0]
-            for i in range(1, 32):
-                SET_LT[i] = SET_LT[i-1] * (2 - SET_LT[i-1]) * REGISTER_LT[i] + SET_LT[i - 1] * (SET_LT[i - 1] - 1)
-
-            # Build row
+            for idx in range(127):
+                self.__ATTESTORS[idx] //= 2
+            
             self.__build_row(trace, in_memory)
+
+
+    def __can_terminate_early(self, current_index):
+        """Checks whether all the upper registers of E are 0.
+        """
+        return self.__E[:current_index].count(0) == current_index
+
+    def __pad_rows(self, trace, in_memory):
+        target_rows = next_power_of_two(self.__NUM_ROWS)
+
+        for _ in range(self.__NUM_ROWS, target_rows):
+            self.__NUM_ROWS += 1
+            self.__build_row(trace, in_memory)
+
+    def __init__(self, trace_file: str):
+        super().__init__()
+        self.__reset_registers()
+        self.__hasPadding = True
+        self.__trace_file = trace_file    
+
+    def __reset_registers(self):
+        self.__NUM_ROWS = 0
+        self.__HASH = [0] * 4
+        self.__E = [0] * 4
+        self.__N = [0] * 32
+        self.__SIGNATURE = [0] * 32
+        self.__NEXT_E = 0
+        self.__BIT_E = 0
+        self.__REPRESENTATIVE = [0] * 32
+        self.__RESULT = [0] * 64
+        self.__CARRY = [0] * 63
+        self.__QUOTIENT = [0] * 32
+        self.__ATTESTORS = [0] * 127
 
     def __build_registers(self) -> list[int]:
         """Builds the registers into a single trace row.
@@ -396,18 +238,18 @@ class RSA2048TraceBuilder(TraceBuilder):
         """
 
         return [
+            self.__NUM_ROWS,
             *self.__HASH,
             *self.__N,
             *self.__E,
             *self.__SIGNATURE,
-            *self.__NEXT_E,
-            *self.__BIT_E,
-            *self.__BASE,
+            self.__NEXT_E,
+            self.__BIT_E,
             *self.__REPRESENTATIVE,
             *self.__RESULT,
             *self.__CARRY,
             *self.__QUOTIENT,
-            *self.__REMAINING
+            *self.__ATTESTORS
         ]
     
     def __build_row(self, trace: Trace, in_memory: bool):
