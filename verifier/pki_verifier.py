@@ -231,6 +231,8 @@ if __name__ == '__main__':
                 continue
 
             for metric_key in metrics[suite][key].keys():
+                if tested_flows[key] == 0:
+                    continue
                 metrics[suite][key][metric_key] /= tested_flows[key]
     
     print("[+] Storing baseline metrics...")

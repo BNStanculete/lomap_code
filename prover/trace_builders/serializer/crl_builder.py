@@ -2,6 +2,7 @@ from prover.trace_builders import TraceBuilder, Trace, RegisterView, next_power_
 from prover.trace_builders.rsa2048 import RSA2048TraceBuilder
 from prover.trace_builders.sha256 import Sha256TraceBuilder
 from prover.trace_builders.sha256.constants import TRACE_WIDTH as SHA_TRACE_WIDTH
+from prover.trace_builders.sha256.constants import ROUND_CONSTANTS
 from prover.trace_builders.utils import FIELD_MODULUS
 
 from ast import literal_eval
@@ -182,31 +183,27 @@ class CrlTraceBuilder(TraceBuilder):
         ], trace, in_memory)
         self.__execute_hash_round(trace, in_memory)
 
-        # 9) We perform signature verification
-        self.__pad_rows(trace, in_memory, True)
-
         signature, representative, pub_key = self.__get_signature_params()
         self.__signature_verifier.set_input(representative, pub_key, signature)
 
         signature_trace = self.__signature_verifier.build_trace(True)
-        self.__write_signature_trace(signature_trace, trace, in_memory)
+        # self.__write_signature_trace(signature_trace, trace, in_memory)
 
         if self.__hasPadding:
-            self.__pad_rows(trace, in_memory, increase_counter=False)
+            self.__pad_rows(trace, in_memory)
 
     def __write_signature_trace(self, signature_trace, trace, in_memory):
-        Placeholder = [0] * 3
+        Placeholder = [0] * 4
 
         SIGNATURE_REGISTERS = RegisterView(
-            (Placeholder, 0, 3),
+            (Placeholder, 0, 4),
             (self.__SERIAL, 0, 4),
             (self.__ACCUMULATORS, 0, 96),
             (self.__FIELD_VALUE, 0, 32),
             (self.__ATTESTORS, 0, 64),
             (self.__REVOCATORS, 0, 64),
             (self.__SHA_TRIGGER, 0, 3),
-            (self.__PADDING_COUNTER, 0, 2),
-            (self.__REMAINING, 0, 52)
+            (self.__REMAINING, 0, 53)
         )
 
         for row in signature_trace.as_list():
@@ -224,7 +221,7 @@ class CrlTraceBuilder(TraceBuilder):
             for col in range(73, len(row)):
                 SIGNATURE_REGISTERS[col - 73] = row[col]
             
-            self.__CRL_FIELD, self.__CRL_END, self.__SIGNATURE_ALGO = Placeholder
+            self.__CRL_FIELD, self.__CRL_END, self.__HASH_CONSTANT, self.__SIGNATURE_ALGO = Placeholder
             self.__build_row(trace, in_memory)
 
     def __get_signature_params(self):
@@ -491,7 +488,6 @@ class CrlTraceBuilder(TraceBuilder):
         # Invariant: FIELD_LENGTH == 0 && BYTE_COUNTER >= 64s
         # 1) Left-align the accumulators and pad to a multiple of 256 (preparation)
         self.__allign_accumulators(trace, in_memory, left=True)
-        self.__pad_rows(trace, in_memory, increase_counter=True)
 
         # 2) Combine accumulators into 4-byte blocks and extract hashes
         message_blocks = []
@@ -521,7 +517,10 @@ class CrlTraceBuilder(TraceBuilder):
         )
 
         # 5) Start writing the SHA-trace
+        r_index = 0
         for row in hash_trace.as_list():
+            
+            self.__HASH_CONSTANT = 0
             for col in range(1, len(row)):
                 HASH_REGISTERS[col - 1] = row[col]
 
@@ -530,6 +529,8 @@ class CrlTraceBuilder(TraceBuilder):
                 self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashInputRow"]
             elif (row[0] - 1 < 32 and (row[0] - 1) % 2 == 0) or (row[0] - 1 >= 32 and row[0] - 1 < 177 and (row[0] - 1) % 3 == 0):
                 self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashFirstHalfRound"]
+                self.__HASH_CONSTANT = ROUND_CONSTANTS[r_index]
+                r_index += 1
             elif (row[0] - 1 < 32 and (row[0] - 1) % 2 == 1) or (row[0] - 1 >= 32 and row[0] - 1 < 177 and (row[0] - 1) % 3 == 1):
                 self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashSecondHalfRound"]
             elif row[0] - 1 >= 32 and row[0] - 1 < 177 and (row[0] - 1) % 3 == 2:
@@ -584,21 +585,14 @@ class CrlTraceBuilder(TraceBuilder):
         
         self.__do_book_keeping()
 
-    def __pad_rows(self, trace, in_memory, increase_counter: bool):
-        if increase_counter:
-            self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["PaddingWithCounter"]
-            while self.__PADDING_COUNTER[1] > 0:
-                self.__NUM_ROWS += 1
-                self.__do_book_keeping()
-                self.__build_row(trace, in_memory)
+    def __pad_rows(self, trace, in_memory):
+        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["PaddingWithoutCounter"]
+        self.__NUM_ROWS += 1
+        target_rows = next_power_of_two(self.__NUM_ROWS)
 
-        else:
-            self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["PaddingWithoutCounter"]
+        for _ in range(self.__NUM_ROWS, target_rows):
+            self.__build_row(trace, in_memory)
             self.__NUM_ROWS += 1
-            target_rows = next_power_of_two(self.__NUM_ROWS)
-
-            for _ in range(self.__NUM_ROWS - 1, target_rows):
-                self.__build_row(trace, in_memory)
 
     def __allign_accumulators(self, trace, in_memory, left: bool):
         if left:
@@ -611,6 +605,7 @@ class CrlTraceBuilder(TraceBuilder):
                 self.__ACCUMULATORS[-1] = 0
                 self.__NUM_ROWS += 1
                 self.__REMAINING[0] -= 1
+                self.__do_book_keeping()
                 self.__build_row(trace, in_memory)
         else:
             self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["AccumulatorRightAllignment"]
@@ -622,6 +617,7 @@ class CrlTraceBuilder(TraceBuilder):
                 self.__ACCUMULATORS[0] = 0
                 self.__NUM_ROWS += 1
                 self.__REMAINING[0] -= 1
+                self.__do_book_keeping()
                 self.__build_row(trace, in_memory)
 
     def __do_book_keeping(self):
@@ -641,10 +637,6 @@ class CrlTraceBuilder(TraceBuilder):
         else:
             self.__SHA_TRIGGER[2] = 1
 
-        # Update padding calculator
-        self.__PADDING_COUNTER[0] = self.__NUM_ROWS // 256
-        self.__PADDING_COUNTER[1] = self.__NUM_ROWS % 256
-
         # Update allignment counter
         self.__ALIGNMENT_COUNTER = len(self.__ACCUMULATORS) - self.__BYTE_COUNTER
 
@@ -660,6 +652,8 @@ class CrlTraceBuilder(TraceBuilder):
         self.__CRL_FIELD = 0
         self.__CRL_END = 0
 
+        self.__HASH_CONSTANT = 0
+
         # This encodes the input data for the CRL
         self.__SIGNATURE_ALGO = 0
         self.__SERIAL = [0] * 4
@@ -674,7 +668,6 @@ class CrlTraceBuilder(TraceBuilder):
         self.__ATTESTORS = [0] * 64
         self.__REVOCATORS = [0] * 64
         self.__SHA_TRIGGER = [0] * 3
-        self.__PADDING_COUNTER = [0] * 2
         self.__REMAINING = [0] * 53    
 
         # Loop counters
@@ -685,11 +678,12 @@ class CrlTraceBuilder(TraceBuilder):
 
     def __build_registers(self):
         return [
-            self.__NUM_ROWS,
+            self.__NUM_ROWS,            #
             self.__OPCODE,
             self.__SUBCODE,
             self.__CRL_FIELD,
             self.__CRL_END,
+            self.__HASH_CONSTANT,
             self.__SIGNATURE_ALGO,
             *self.__SERIAL,
             *self.__PUBLIC_KEY,
@@ -697,14 +691,13 @@ class CrlTraceBuilder(TraceBuilder):
             self.__FIELD_LENGTH,
             self.__CRL_LENGTH,
             self.__BYTE_COUNTER,
-            self.__ALIGNMENT_COUNTER,
+            self.__ALIGNMENT_COUNTER,   #
             *self.__HASH,
             *self.__ACCUMULATORS,
             *self.__FIELD_VALUE,
-            *self.__ATTESTORS,
+            *self.__ATTESTORS,          #
             *self.__REVOCATORS,
-            *self.__SHA_TRIGGER,
-            *self.__PADDING_COUNTER,
+            *self.__SHA_TRIGGER,        #
             *self.__REMAINING
         ]
     
