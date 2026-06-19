@@ -163,7 +163,7 @@ class CrlTraceBuilder(TraceBuilder):
                 self.__CRL_FIELD += 1
 
             self.__NUM_ROWS += 1
-            self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HeaderSerialization"]
+            self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
             self.__CRL_FIELD += 1
 
             self.__FIELD_LENGTH = 1
@@ -187,7 +187,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__signature_verifier.set_input(representative, pub_key, signature)
 
         signature_trace = self.__signature_verifier.build_trace(True)
-        # self.__write_signature_trace(signature_trace, trace, in_memory)
+        self.__write_signature_trace(signature_trace, trace, in_memory)
 
         if self.__hasPadding:
             self.__pad_rows(trace, in_memory)
@@ -210,13 +210,13 @@ class CrlTraceBuilder(TraceBuilder):
             self.__NUM_ROWS += 1
 
             if row[0] == 1:
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["SignatureVerifInput"]
+                self.__OPBITS = constants.OPERATION_CODES["SignatureVerifInput"]
             elif row[0] % 256 in [2, 130]:
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["SignatureVerifMulti"]
+                self.__OPBITS = constants.OPERATION_CODES["SignatureVerifMulti"]
             elif row[0] % 256 in [66, 194]:
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["SignatureVerifRed"]
+                self.__OPBITS = constants.OPERATION_CODES["SignatureVerifRed"]
             else:
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["SignatureVerifAttest"]
+                self.__OPBITS = constants.OPERATION_CODES["SignatureVerifAttest"]
 
             for col in range(73, len(row)):
                 SIGNATURE_REGISTERS[col - 73] = row[col]
@@ -247,7 +247,7 @@ class CrlTraceBuilder(TraceBuilder):
 
     def __complete_padding(self, length: int):
         self.__NUM_ROWS += 1
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
         self.__CRL_FIELD += 1
 
         zero_count = (56 - ((length + 1) % 64)) % 64
@@ -294,7 +294,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__REVOCATORS[19] = self.__REVOCATORS[14] + self.__REVOCATORS[16] + self.__REVOCATORS[18]
 
         # Now we put the value in the field
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
         self.__NUM_ROWS += 1
 
         copy = serial
@@ -313,7 +313,7 @@ class CrlTraceBuilder(TraceBuilder):
         
 
     def __set_string_value(self, value: str):
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
         self.__NUM_ROWS += 1
         self.__FIELD_LENGTH = len(value)
 
@@ -331,7 +331,7 @@ class CrlTraceBuilder(TraceBuilder):
             copy >>= 8
 
         self.__NUM_ROWS += 1
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
         self.__FIELD_LENGTH = byte_counter
 
         for idx in range(byte_counter):
@@ -351,7 +351,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__set_header(constants.OID, byte_counter)
 
     def __set_header(self, tag: int, length: int, new_field: bool = False):
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
         self.__NUM_ROWS += 1
         
         if new_field:
@@ -365,7 +365,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__do_book_keeping()
 
     def __set_signature_oid_value(self):
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
         self.__NUM_ROWS += 1
 
         if self.__SIGNATURE_ALGO == 1:
@@ -390,7 +390,7 @@ class CrlTraceBuilder(TraceBuilder):
 
     def __set_version_value(self):
         self.__NUM_ROWS += 1
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
         self.__FIELD_LENGTH = 1
         self.__FIELD_VALUE[0] = self.__input_data["CRLFields"]["Version"]
         self.__do_book_keeping()
@@ -405,7 +405,7 @@ class CrlTraceBuilder(TraceBuilder):
         length_tl = utils.BuildTL(constants.SEQUENCE, self.__input_data["CRLFields"]["TBSLength"] - length)
 
         self.__NUM_ROWS += 1
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
         self.__CRL_LENGTH = self.__input_data["CRLFields"]["TBSLength"]
         self.__FIELD_LENGTH = len(length_tl)
 
@@ -526,22 +526,21 @@ class CrlTraceBuilder(TraceBuilder):
 
             self.__NUM_ROWS += 1
             if row[0] - 1 == 0:
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashInputRow"]
+                self.__OPBITS = constants.OPERATION_CODES["HashInputRow"]
             elif (row[0] - 1 < 32 and (row[0] - 1) % 2 == 0) or (row[0] - 1 >= 32 and row[0] - 1 < 177 and (row[0] - 1) % 3 == 0):
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashFirstHalfRound"]
+                self.__OPBITS = constants.OPERATION_CODES["HashFirstHalfRound"]
                 self.__HASH_CONSTANT = ROUND_CONSTANTS[r_index]
                 r_index += 1
             elif (row[0] - 1 < 32 and (row[0] - 1) % 2 == 1) or (row[0] - 1 >= 32 and row[0] - 1 < 177 and (row[0] - 1) % 3 == 1):
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashSecondHalfRound"]
+                self.__OPBITS = constants.OPERATION_CODES["HashSecondHalfRound"]
             elif row[0] - 1 >= 32 and row[0] - 1 < 177 and (row[0] - 1) % 3 == 2:
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashScheduleUpdate"]
+                self.__OPBITS = constants.OPERATION_CODES["HashScheduleUpdate"]
             elif row[0] - 1 == 177:
-                self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashAggregation"]
-
+                self.__OPBITS = constants.OPERATION_CODES["HashAggregation"]
             self.__build_row(trace, in_memory)
 
         # 6) We extract the output hash and reset the registers
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["HashCleanup"]
+        self.__OPBITS = constants.OPERATION_CODES["HashCleanup"]
         self.__NUM_ROWS += 1
 
         for idx in range(4):
@@ -555,7 +554,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__allign_accumulators(trace, in_memory, left=False)
 
         # 8) We update the byte_counter accordingly
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["PostHashBookkeeping"]
+        self.__OPBITS = constants.OPERATION_CODES["PostHashBookkeeping"]
         self.__NUM_ROWS += 1
         self.__BYTE_COUNTER -= 64
         self.__do_book_keeping()
@@ -586,7 +585,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__do_book_keeping()
 
     def __pad_rows(self, trace, in_memory):
-        self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["PaddingWithoutCounter"]
+        self.__OPBITS = constants.OPERATION_CODES["PaddingWithoutCounter"]
         self.__NUM_ROWS += 1
         target_rows = next_power_of_two(self.__NUM_ROWS)
 
@@ -596,7 +595,7 @@ class CrlTraceBuilder(TraceBuilder):
 
     def __allign_accumulators(self, trace, in_memory, left: bool):
         if left:
-            self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["AccumulatorLeftAllignment"]
+            self.__OPBITS = constants.OPERATION_CODES["AccumulatorLeftAllignment"]
             self.__REMAINING[0] = self.__ALIGNMENT_COUNTER
 
             for _ in range(self.__ALIGNMENT_COUNTER):
@@ -608,7 +607,7 @@ class CrlTraceBuilder(TraceBuilder):
                 self.__do_book_keeping()
                 self.__build_row(trace, in_memory)
         else:
-            self.__OPCODE, self.__SUBCODE = constants.OPERATION_CODES["AccumulatorRightAllignment"]
+            self.__OPBITS = constants.OPERATION_CODES["AccumulatorRightAllignment"]
             self.__REMAINING[0] = self.__ALIGNMENT_COUNTER
 
             for _ in range(self.__ALIGNMENT_COUNTER):
@@ -640,6 +639,17 @@ class CrlTraceBuilder(TraceBuilder):
         # Update allignment counter
         self.__ALIGNMENT_COUNTER = len(self.__ACCUMULATORS) - self.__BYTE_COUNTER
 
+        # Break down the CRLField
+        copy = self.__CRL_FIELD
+        for i in range(1, 6):
+            self.__REMAINING[6 - i] = copy % 2
+            self.__REMAINING[11 - i] = self.__REMAINING[6 - i] * (1 - self.__OPBITS[0]) *   \
+                                                                 (self.__OPBITS[1])     *   \
+                                                                 (1 - self.__OPBITS[2]) *   \
+                                                                 (1 - self.__OPBITS[3]) *   \
+                                                                 (self.__OPBITS[4])
+            copy //= 2
+
     def __can_execute_hash_round(self):
         return self.__SHA_TRIGGER[2]
 
@@ -647,8 +657,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__NUM_ROWS = 0
 
         # This encodes the exact field we're serializing and guards transitions between opcodes
-        self.__OPCODE = 0
-        self.__SUBCODE = 0
+        self.__OPBITS = [0] * 5
         self.__CRL_FIELD = 0
         self.__CRL_END = 0
 
@@ -678,27 +687,26 @@ class CrlTraceBuilder(TraceBuilder):
 
     def __build_registers(self):
         return [
-            self.__NUM_ROWS,            #
-            self.__OPCODE,
-            self.__SUBCODE,
+            self.__NUM_ROWS,            #   S   H   V
+            *self.__OPBITS,
             self.__CRL_FIELD,
-            self.__CRL_END,
-            self.__HASH_CONSTANT,
-            self.__SIGNATURE_ALGO,
-            *self.__SERIAL,
-            *self.__PUBLIC_KEY,
-            *self.__SIGNATURE,
-            self.__FIELD_LENGTH,
-            self.__CRL_LENGTH,
-            self.__BYTE_COUNTER,
-            self.__ALIGNMENT_COUNTER,   #
-            *self.__HASH,
-            *self.__ACCUMULATORS,
-            *self.__FIELD_VALUE,
-            *self.__ATTESTORS,          #
+            self.__CRL_END,             #   S
+            self.__HASH_CONSTANT,       #   S
+            self.__SIGNATURE_ALGO,      #   S
+            *self.__SERIAL,             #   S
+            *self.__PUBLIC_KEY,         #   S   H   V
+            *self.__SIGNATURE,          #   S
+            self.__FIELD_LENGTH,        #   S
+            self.__CRL_LENGTH,          #   S
+            self.__BYTE_COUNTER,        #   S
+            self.__ALIGNMENT_COUNTER,   #   S
+            *self.__HASH,               #   S
+            *self.__ACCUMULATORS,       #   S
+            *self.__FIELD_VALUE,        #   S
+            *self.__ATTESTORS,          #   S
             *self.__REVOCATORS,
-            *self.__SHA_TRIGGER,        #
-            *self.__REMAINING
+            *self.__SHA_TRIGGER,        #   S
+            *self.__REMAINING           #   S(0)
         ]
     
     def __build_row(self, trace: Trace, in_memory: bool):

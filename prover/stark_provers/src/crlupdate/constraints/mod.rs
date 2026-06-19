@@ -7,19 +7,22 @@ use crate::utils::constraints::ConstraintSpecification;
 
 mod padding;
 mod general;
+mod serialization;
 
-use padding::{padding_without_counter_constraint_specification};
-use general::{general_constraint_specification, general_serialization_constraint_specification};
+use padding::padding_without_counter_constraint_specification;
+use general::general_constraint_specification;
 
 pub fn get_constraints<E: FieldElement + From<BaseElement>>(trace_length: usize) -> Vec<ConstraintSpecification<E>> {
     let mut constraints = Vec::new();
 
-    // Padding constraints
+    // Padding & General constraints
     constraints.push(padding_without_counter_constraint_specification(trace_length));
     constraints.push(general_constraint_specification(trace_length));
 
     // Serialization constraints
-    constraints.push(general_serialization_constraint_specification(trace_length));
+    constraints.push(serialization::preservation_constraints_specification(trace_length));
+    constraints.push(serialization::bookkeeping_constraints_specification(trace_length));
+    constraints.push(serialization::accumulator_update_constraints_specification(trace_length));
 
     // Hash constraints
 

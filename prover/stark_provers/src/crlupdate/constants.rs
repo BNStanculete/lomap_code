@@ -11,49 +11,43 @@ use crate::utils::to_base_element;
 // Sub-trace agnostic offsets
 pub const NUM_ROWS_OFFSET: usize = 0;
 pub const OPCODE_OFFSET: usize = 1;
-pub const SUBCODE_OFFSET: usize = 2;
-pub const PUB_KEY_OFFSET: usize = 11;
-pub const SIGNATURE_OFFSET: usize = 47;
-pub const HASH_OFFSET: usize = 83;
+pub const PUB_KEY_OFFSET: usize = 14;
+pub const SIGNATURE_OFFSET: usize = 50;
+pub const HASH_OFFSET: usize = 86;
 
 // Serialization trace offsets
-pub const CRL_FIELD_OFFSET: usize = 3;
-pub const CRL_END_OFFSET: usize = 4;
-pub const HASH_CONSTANT_OFFSET: usize = 5;
-pub const SIGNATURE_ALGO_OFFSET: usize = 6;
-pub const SERIAL_OFFSET: usize = 7;
-pub const FIELD_LENGTH_OFFSET: usize = 79;
-pub const CRL_LENGTH_OFFSET: usize = 80;
-pub const BYTE_COUNTER_OFFSET: usize = 81;
-pub const ALIGNMENT_COUNTER_OFFSET: usize = 82;
-pub const ACCUMULATOR_OFFSET: usize = 87;
-pub const FIELD_VALUE_OFFSET: usize = 183;
-pub const ATTESTORS_OFFSET: usize = 215;
-pub const REVOCATORS_OFFSET: usize = 279;
-pub const TRIGGER_OFFSET: usize = 343;
-pub const REMAINING_OFFSET: usize = 346;
+pub const CRL_FIELD_OFFSET: usize = 6;
+pub const CRL_END_OFFSET: usize = 7;
+pub const HASH_CONSTANT_OFFSET: usize = 8;
+pub const SIGNATURE_ALGO_OFFSET: usize = 9;
+pub const SERIAL_OFFSET: usize = 10;
+pub const FIELD_LENGTH_OFFSET: usize = 82;
+pub const CRL_LENGTH_OFFSET: usize = 83;
+pub const BYTE_COUNTER_OFFSET: usize = 84;
+pub const ALIGNMENT_COUNTER_OFFSET: usize = 85;
+pub const ACCUMULATOR_OFFSET: usize = 90;
+pub const FIELD_VALUE_OFFSET: usize = 186;
+pub const ATTESTORS_OFFSET: usize = 218;
+pub const REVOCATORS_OFFSET: usize = 282;
+pub const TRIGGER_OFFSET: usize = 346;
+pub const REMAINING_OFFSET: usize = 349;
 
 // Hash trace offsets
-pub const WORK_SCHEDULE_OFFSET: usize = 87;
-pub const AH_OFFSET: usize = 103;
-pub const BITS_OFFSET: usize = 113;
-pub const BITWISE_OUTPUT_OFFSET: usize = 337;
-pub const CARRY_OFFSET: usize = 339;
-pub const OUT_HASH_OFFSET: usize = 347;
+pub const WORK_SCHEDULE_OFFSET: usize = ACCUMULATOR_OFFSET;
+pub const AH_OFFSET: usize = ACCUMULATOR_OFFSET + 16;
+pub const BITS_OFFSET: usize = ACCUMULATOR_OFFSET + 26;
+pub const BITWISE_OUTPUT_OFFSET: usize = REMAINING_OFFSET + 26;
+pub const CARRY_OFFSET: usize = REMAINING_OFFSET + 28;
+pub const OUT_HASH_OFFSET: usize = REMAINING_OFFSET + 36;
 
 // Signature trace offsets
 pub const NEXT_E_OFFSET: usize = CRL_FIELD_OFFSET;
 pub const BIT_E_OFFSET: usize = CRL_END_OFFSET;
 pub const REPRESENTATIVE_OFFSETS: [usize; 2] = [HASH_CONSTANT_OFFSET, ACCUMULATOR_OFFSET];
-pub const RESULT_OFFSET: usize = 113;
-pub const SIGNATURE_CARRY_OFFSET: usize = 177;
-pub const QUOTIENT_OFFSET: usize = 240;
-pub const SIGNATURE_ATTESTORS_OFFSET: usize = 272;
-
-// PERIODIC COLUMN OFFSETS
-// ================================================================================================
-
-pub const MESSAGE_SCHEDULE_COMPUTATION_FLAG_INDEX: usize = 0;
+pub const RESULT_OFFSET: usize = ACCUMULATOR_OFFSET + 26;
+pub const SIGNATURE_CARRY_OFFSET: usize = ACCUMULATOR_OFFSET + 90;
+pub const QUOTIENT_OFFSET: usize = ATTESTORS_OFFSET + 25;
+pub const SIGNATURE_ATTESTORS_OFFSET: usize = ATTESTORS_OFFSET + 57;
 
 // SHA-256 CONSTANTS
 // ================================================================================================

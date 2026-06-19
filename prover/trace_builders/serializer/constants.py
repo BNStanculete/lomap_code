@@ -4,26 +4,25 @@ TRACE_WIDTH         = 399
 REGISTER_LIMIT      = pow(2, 64)
 
 OPERATION_CODES = {
-    "PaddingWithoutCounter": (0, 2),        # 00 010    (0)
+    "PaddingWithoutCounter":        (0, 0, 0, 0, 1),
 
-    "HeaderSerialization": (1, 0),          # 01 000    (1)
-    "FieldSerialization": (1, 1),           # 01 001    (1)
-    "AccumulatorUpdate": (1, 2),            # 01 010    (1)
-    "AccumulatorLeftAllignment": (1, 3),    # 01 011    (1)
-    "AccumulatorRightAllignment": (1, 4),   # 01 100    (1)
-    "PostHashBookkeeping": (1, 5),          # 01 101    (1)
+    "HeaderSerialization":          (0, 1, 0, 0, 0),
+    "FieldSerialization":           (0, 1, 0, 0, 1),
+    "AccumulatorLeftAllignment":    (0, 1, 0, 1, 0),
+    "AccumulatorRightAllignment":   (0, 1, 0, 1, 1),
+    "PostHashBookkeeping":          (0, 1, 1, 0, 0),
 
-    "HashInputRow": (2, 0),                 # 10 000    (1)
-    "HashFirstHalfRound": (2, 1),           # 10 001    (1)
-    "HashSecondHalfRound": (2, 2),          # 10 010    (1)
-    "HashScheduleUpdate": (2, 3),           # 10 011    (1)
-    "HashAggregation": (2, 4),              # 10 100    (1)
-    "HashCleanup": (2, 5),                  # 10 101    (1)
+    "HashInputRow":                 (1, 0, 0, 0, 0),
+    "HashFirstHalfRound":           (1, 0, 0, 0, 1),
+    "HashSecondHalfRound":          (1, 0, 0, 1, 0),
+    "HashScheduleUpdate":           (1, 0, 0, 1, 1),
+    "HashAggregation":              (1, 0, 1, 0, 0),
+    "HashCleanup":                  (1, 0, 1, 0, 1),
 
-    "SignatureVerifInput": (3, 0),          # 11 000    (2)
-    "SignatureVerifMulti": (3, 1),          # 11 001    (2)
-    "SignatureVerifRed": (3, 2),            # 11 010    (2)
-    "SignatureVerifAttest": (3, 3),         # 11 011    (2)
+    "SignatureVerifInput":          (1, 1, 0, 0, 0),
+    "SignatureVerifMulti":          (1, 1, 0, 0, 1),
+    "SignatureVerifRed":            (1, 1, 0, 1, 0),
+    "SignatureVerifAttest":         (1, 1, 0, 1, 1),
 }
 
 FIELD_MODULUS = pow(2, 128) - 45 * pow(2, 40) + 1

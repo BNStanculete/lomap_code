@@ -21,4 +21,4 @@
 - Port to 128-bit field                                 * Joi - 21
 
 ----------------------
-FIX RSA-2048 trace generator (maybe rework from the ground up.)
+Add Poseidon hashing to trace (figure out where. Maybe add 2 more rows at the end that each encode a full poseidon)

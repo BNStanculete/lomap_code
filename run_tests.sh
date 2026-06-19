@@ -15,3 +15,6 @@ python3 preprocessor.py
 
 # Run the PKI Verifier
 python3 ./verifier/pki_verifier.py
+
+# Run the LOAP Prover & Verifier
+python3 ./loap.py
