@@ -36,6 +36,60 @@ def extract_metric(output: str, mask: str):
 
     return float(output[start_index + length : stop_index])
 
+def write_ets_nodes(message_block: list[str]) -> int:
+    index = 0
+    cache_bytes = 0
+    trust_store_bytes = 0
+
+    # Last element is the prover commitment
+    while index < len(message_block) - 1:
+        entity_cn = message_block[index]
+
+        if Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).exists():
+            index += 7
+
+            if not entity_cn.startswith("Root"):
+                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).stat().st_size
+        else:
+            print(f"[+] Writing ETS Node {entity_cn + '.loapcert'}")
+            with open(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert"), "w") as file:
+                for _ in range(7):
+                    file.write(message_block[index])
+                    file.write("\n")
+                    index += 1
+
+            if entity_cn.startswith("Root"):
+                trust_store_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).stat().st_size
+            else:
+                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).stat().st_size
+
+        next_cn = message_block[index]
+        if next_cn == entity_cn:
+            if Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).exists():
+                index += 4
+                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
+            else:
+                print(f"[+] Writing CRL ETS Node {entity_cn + '.loapcrl'}")
+                with open(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl"), "w") as file:
+                    for _ in range(4):
+                        file.write(message_block[index])
+                        file.write("\n")
+                        index += 1
+                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
+    return (cache_bytes, trust_store_bytes)
+
+def get_poseidon_blocks(list):
+    hashable_blocks = []
+    for item in list:
+        bytes_obj = item.encode('utf-8')
+        int_obj = int.from_bytes(bytes_obj)
+
+        subblocks = len(bytes_obj) // 128 + 1
+        for i in range(subblocks):
+            hashable_blocks.append((int_obj >> (128 * subblocks - i - 1)) & (1 << 128 - 1))
+    return hashable_blocks
+
+
 if __name__ == '__main__':
     print("[+] Running the LOAP Prover...")
     print("[+] ===================================")
@@ -115,7 +169,113 @@ if __name__ == '__main__':
             print(f"[+] Loading prover inputs...")
             input_data = test_data[test]["LOAPProver"][message]
 
-            if message.startswith("CRLUpdate"):
+            if message.startswith("Authentication"):
+                tested_flows["Authentication"] += 1
+                print(f"[+] Executing proofs and verification for {message}")
+                print(f"[+] Grouping CA certificates with CRLs...")
+                proof_data = {}
+
+                for key in input_data["Certificates"].keys():
+                    if key in input_data["CRLs"].keys():
+                        proof_data[key] = {
+                            "Certificate": input_data["Certificates"][key],
+                            "CRL": {
+                                "CRLFields": input_data["CRLs"][key],
+                                "ProverSerial": 0,
+                                "PublicKey": [],
+                            },
+                            "NextInChain": ""
+                        }
+                
+                print(f"[+] Connecting logical components of proof...")
+                for key in proof_data.keys():
+                    for name_part in proof_data[key]["Certificate"]["Issuer"]:
+                        if name_part["OID"] == "CN" and name_part["Value"] != key:
+                            proof_data[key]["NextInChain"] = name_part["Value"]
+
+                key = [x for x in input_data["Certificates"].keys() if x.startswith("Leaf")]
+                proof_data["ProverCertificate"] = {
+                    "Certificate": input_data["Certificates"][key[0]],
+                    "CRL": None,
+                    "NextInChain": ""
+                }
+                
+                for name_part in proof_data["ProverCertificate"]["Certificate"]["Issuer"]:
+                    if name_part["OID"] == "CN":
+                        proof_data["ProverCertificate"]["NextInChain"] = name_part["Value"]
+
+                ets_nodes = []
+                print(f"[+] Writing prover message...")
+                with open(join(temp_path, "message.txt"), "w") as file:
+                    for key in proof_data.keys():
+                        message_block = []
+
+                        for oid_part in proof_data[key]["Certificate"]["Subject"]:
+                            if oid_part["OID"] == "CN":
+                                message_block.append(oid_part["Value"])
+                        for oid_part in proof_data[key]["Certificate"]["Issuer"]:
+                            if oid_part["OID"] == "CN":
+                                message_block.append(oid_part["Value"])
+
+                        message_block.append(str(poseidon_hash.poseidon_hash(proof_data[key]["Certificate"]["Serial"], 0)))
+                        message_block.append(proof_data[key]["Certificate"]["NotBefore"])
+                        message_block.append(proof_data[key]["Certificate"]["NotAfter"])
+
+                        # Hash the public key
+                        pk_blocks = [
+                            proof_data[key]["Certificate"]["PublicKey"][0]]
+                        pk_blocks.extend([
+                            (proof_data[key]["Certificate"]["PublicKey"][1] >> shift) & (1 << 128 - 1) for shift in range(1920, -1, -128)
+                        ])
+
+                        pk_hash = poseidon_hash.poseidon_hash_many(pk_blocks)
+
+                        message_block.append(str(pk_hash))
+
+                        # Hash the cert representative
+                        cert_hash = poseidon_hash.poseidon_hash_many(
+                            get_poseidon_blocks(message_block)
+                        )
+
+                        message_block.append(str(cert_hash))
+                        
+                        # Now deal with the CRL
+                        if proof_data[key]["CRL"] != None:
+                            crl_block = [
+                                message_block[0],
+                                proof_data[key]["CRL"]["CRLFields"]["ThisUpdate"],
+                                proof_data[key]["CRL"]["CRLFields"]["NextUpdate"],
+                            ]
+
+                            crl_hash = poseidon_hash.poseidon_hash_many(
+                                get_poseidon_blocks(crl_block)
+                            )
+
+                            crl_block.append(str(crl_hash))
+                            message_block.extend(crl_block)
+                        
+                        # Hash the block
+                        block_hash = poseidon_hash.poseidon_hash_many(
+                            get_poseidon_blocks(message_block)
+                        )                
+
+                        message_block.append(str(block_hash))
+
+                        # Write block to file
+                        for item in message_block:
+                            file.write(item)
+                            file.write("\n")
+
+                        # Write block to ets
+                        print("[+] Updating the ETS...")
+                        cache, trust_store = write_ets_nodes(message_block)
+
+                        print("[+] Accumulating CACHE and TrustStore metrics...")
+                        metrics[test_data[test]["TestSuite"]]["TrustStore"] += trust_store
+                        metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"] += cache
+
+
+            elif message.startswith("CRLUpdate"):
                 tested_flows["CRLUpdate"] += 1
                 print(f"[+] Executing proofs and verification for {message}")
                 print(f"[+] Writing prover message...")

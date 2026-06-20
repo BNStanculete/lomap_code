@@ -40,7 +40,7 @@ class CrlTraceBuilder(TraceBuilder):
 
         # 2) We set the CRL Version
         self.__conditional_serialize([
-            partial(self.__set_version_header),
+            partial(self.__set_header, constants.INTEGER, 1, True),
             partial(self.__build_row, trace, in_memory),
             partial(self.__write_value_encoding, trace, in_memory),
             partial(self.__set_version_value),
@@ -98,7 +98,7 @@ class CrlTraceBuilder(TraceBuilder):
 
         # 5) We now encode the time interval fields
         self.__conditional_serialize([
-            partial(self.__set_header, constants.UTC_TIME, len(self.__input_data["CRLFields"]["ThisUpdate"])),
+            partial(self.__set_header, constants.UTC_TIME, len(self.__input_data["CRLFields"]["ThisUpdate"]), True),
             partial(self.__build_row, trace, in_memory),
             partial(self.__write_value_encoding, trace, in_memory),
             partial(self.__set_string_value, self.__input_data["CRLFields"]["ThisUpdate"]),
@@ -108,7 +108,7 @@ class CrlTraceBuilder(TraceBuilder):
 
         if "NextUpdate" in self.__input_data["CRLFields"].keys():
             self.__conditional_serialize([
-                partial(self.__set_header, constants.UTC_TIME, len(self.__input_data["CRLFields"]["NextUpdate"])),
+                partial(self.__set_header, constants.UTC_TIME, len(self.__input_data["CRLFields"]["NextUpdate"]), True),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
                 partial(self.__set_string_value, self.__input_data["CRLFields"]["NextUpdate"]),
@@ -377,16 +377,6 @@ class CrlTraceBuilder(TraceBuilder):
                 self.__FIELD_VALUE[8 - idx] = oid & 0xFF
                 oid >>= 8 
             self.__do_book_keeping()
-
-    def __set_version_header(self):
-        self.__NUM_ROWS += 1
-        self.__CRL_FIELD += 1
-        tl = utils.BuildTL(constants.INTEGER, 1)
-
-        self.__FIELD_VALUE[0] = tl[0]
-        self.__FIELD_VALUE[1] = tl[1]
-        self.__FIELD_LENGTH = 2
-        self.__do_book_keeping()
 
     def __set_version_value(self):
         self.__NUM_ROWS += 1
