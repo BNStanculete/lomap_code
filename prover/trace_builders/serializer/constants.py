@@ -29,6 +29,7 @@ FIELD_MODULUS = pow(2, 128) - 45 * pow(2, 40) + 1
 
 # X.509 TAGs
 INTEGER             = int('0x02', 16)
+BIT_STRING          = int('0x03', 16)
 NULL                = int('0x05', 16)
 OID                 = int('0x06', 16)
 UTF8_STRING         = int('0x0C', 16)
@@ -38,9 +39,11 @@ IA5_STRING          = int('0x16', 16)
 UTC_TIME            = int('0x17', 16)
 SEQUENCE            = int('0x30', 16)
 SET                 = int('0x31', 16)
+BRACKET_ZERO        = int('0xA0', 16)
 
 # X.509 OIDs
 OIDs = {
+    "RSA": "1.2.840.113549.1.1.1",
     "SHA256_RSA":   "1.2.840.113549.1.1.11",
     "SHA256_ECDSA": "1.2.840.10045.4.3.2",
 

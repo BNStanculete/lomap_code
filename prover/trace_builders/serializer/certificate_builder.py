@@ -19,6 +19,9 @@ class CertificateTraceBuilder(TraceBuilder):
         """
         self.__hasPadding = not self.__hasPadding
 
+    def setPadding(self, padding):
+        self.__hasPadding = padding
+
     def set_input(self, input_data: dict):
         self.__input_data = input_data
         self.__reset_registers()
@@ -39,7 +42,10 @@ class CertificateTraceBuilder(TraceBuilder):
 
         # 2) We set the Certificate Version
         self.__conditional_serialize([
-            partial(self.__set_header, constants.INTEGER, 1, True),
+            partial(self.__set_header, constants.BRACKET_ZERO, 3, True),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__write_value_encoding, trace, in_memory),
+            partial(self.__set_header, constants.INTEGER, 1),
             partial(self.__build_row, trace, in_memory),
             partial(self.__write_value_encoding, trace, in_memory),
             partial(self.__set_version_value),
@@ -82,29 +88,51 @@ class CertificateTraceBuilder(TraceBuilder):
             partial(self.__write_value_encoding, trace, in_memory)
         ], trace, in_memory)
 
-        for pair in self.__input_data["Issuer"]:
+        for pair in self.__input_data["Issuer"][::-1]:
             (_, oid), (_, value), (_, length), (_, sublength) = pair.items()
 
-            self.__conditional_serialize([
-                partial(self.__set_header, constants.SET, length),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_header, constants.SEQUENCE, sublength),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_oid_header, oid),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_oid_value, oid),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_header, constants.UTF8_STRING, len(value)),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_string_value, value),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-            ], trace, in_memory)
+            if oid != 'C':
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.SET, length),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.SEQUENCE, sublength),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_header, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_value, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.UTF8_STRING, len(value)),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_string_value, value),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
+            else:
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.SET, length),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.SEQUENCE, sublength),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_header, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_value, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.PRINTABLE_STRING, len(value)),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_string_value, value),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
 
         # 5) We now encode the time interval fields
         self.__conditional_serialize([
@@ -139,57 +167,121 @@ class CertificateTraceBuilder(TraceBuilder):
             partial(self.__write_value_encoding, trace, in_memory)
         ], trace, in_memory)
 
-        for pair in self.__input_data["Subject"]:
+        for pair in self.__input_data["Subject"][::-1]:
             (_, oid), (_, value), (_, length), (_, sublength) = pair.items()
 
+            if oid != 'C':
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.SET, length),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.SEQUENCE, sublength),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_header, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_value, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.UTF8_STRING, len(value)),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_string_value, value),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
+            else:
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.SET, length),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.SEQUENCE, sublength),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_header, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_value, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.PRINTABLE_STRING, len(value)),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_string_value, value),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
+
+        # 8) We now encode the subject public key
+        if self.__SIGNATURE_ALGO == 1:
             self.__conditional_serialize([
-                partial(self.__set_header, constants.SET, length),
+                partial(self.__set_header, constants.SEQUENCE, 290, True),
+                # partial(self.__add_NULL_byte),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_header, constants.SEQUENCE, sublength),
+                partial(self.__set_header, constants.SEQUENCE, 13),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_oid_header, oid),
+                partial(self.__set_header, constants.OID, 9),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_oid_value, oid),
+                partial(self.__set_pubkey_oid_value),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_header, constants.UTF8_STRING, len(value)),
+                partial(self.__set_header, constants.NULL, 0),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory)
+            ], trace, in_memory)
+
+            self.__conditional_serialize([
+                partial(self.__set_header, constants.BIT_STRING, 271, True),
+                partial(self.__add_NULL_byte),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_string_value, value),
+                partial(self.__set_header, constants.SEQUENCE, 266),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory),
+                partial(self.__set_header, constants.INTEGER, 257),
+                partial(self.__add_NULL_byte),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
             ], trace, in_memory)
 
-        # 8) We now encode the subject public key
-        # TODO
+            # Add the public key modulus byte by byte
+            self.__CRL_FIELD += 1
+            for shift in range(2040, -1, -8):
+                self.__conditional_serialize([
+                    partial(self.__get_modulus_byte, shift),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
+
+            self.__conditional_serialize([
+                partial(self.__set_header, constants.INTEGER, 3, True),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory),
+                partial(self.__set_exponent),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory),
+            ], trace, in_memory)
 
         # 7) We write the Certificate extensions and the 0x80 byte of the SHA-256 padding
-        ext_bytes = literal_eval(self.__input_data["Extensions"])
+        ext_bytes = literal_eval(self.__input_data["ExtensionsRaw"])
         ext_bytes += 0x80.to_bytes(1)
         
         for byte in ext_bytes:
-            if self.__CRL_LENGTH == 0:
-                self.__CRL_END = 1
-                self.__CRL_FIELD += 1
-
-            self.__NUM_ROWS += 1
-            self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
-            self.__CRL_FIELD += 1
-
-            self.__FIELD_LENGTH = 1
-            self.__FIELD_VALUE[0] = byte
-            self.__do_book_keeping()
-
             self.__conditional_serialize([
+                partial(self.__write_extension_byte, byte),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory)
             ], trace, in_memory)
 
         # 8) We set the hash padding and perform 1 more round
         self.__conditional_serialize([
+            partial(self.__add_zeroes, self.__input_data["TBSLength"]),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__write_value_encoding, trace, in_memory),
             partial(self.__complete_padding, self.__input_data["TBSLength"]),
             partial(self.__build_row, trace, in_memory),
             partial(self.__write_value_encoding, trace, in_memory)
@@ -200,10 +292,46 @@ class CertificateTraceBuilder(TraceBuilder):
         self.__signature_verifier.set_input(representative, pub_key, signature)
 
         signature_trace = self.__signature_verifier.build_trace(True)
-        # self.__write_signature_trace(signature_trace, trace, in_memory)
+        self.__write_signature_trace(signature_trace, trace, in_memory)
 
         if self.__hasPadding:
             self.__pad_rows(trace, in_memory)
+
+        return trace
+
+    def __write_extension_byte(self, byte):
+        if self.__CRL_LENGTH == 0:
+            self.__CRL_END = 1
+            self.__CRL_FIELD += 1
+
+        self.__NUM_ROWS += 1
+        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__CRL_FIELD += 1
+
+        self.__FIELD_LENGTH = 1
+        self.__FIELD_VALUE[0] = byte
+        self.__do_book_keeping()
+
+    def __set_exponent(self):
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+        self.__FIELD_LENGTH = 3
+        self.__NUM_ROWS += 1
+
+        # Optimized for the common 65537 exponent
+        self.__FIELD_VALUE[0] = (self.__input_data["PublicKey"][0] >> 16) & 0xFF
+        self.__FIELD_VALUE[1] = (self.__input_data["PublicKey"][0] >> 8) & 0xFF
+        self.__FIELD_VALUE[2] = (self.__input_data["PublicKey"][0]) & 0xFF
+        self.__do_book_keeping()
+
+    def __get_modulus_byte(self, shift: int):
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+        self.__FIELD_LENGTH = 1
+        self.__NUM_ROWS += 1
+        self.__FIELD_VALUE[0] = (self.__input_data["PublicKey"][1] >> shift) & 0xFF
+        self.__do_book_keeping()
+
+    def __add_NULL_byte(self):
+        self.__FIELD_LENGTH += 1
 
     def __write_signature_trace(self, signature_trace, trace, in_memory):
         Placeholder = [0] * 4
@@ -258,20 +386,28 @@ class CertificateTraceBuilder(TraceBuilder):
 
         return (signature, repr, pub_key)
 
-    def __complete_padding(self, length: int):
+    def __add_zeroes(self, length: int):
         self.__NUM_ROWS += 1
         self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
         self.__CRL_FIELD += 1
 
         zero_count = (56 - ((length + 1) % 64)) % 64
+        self.__FIELD_LENGTH = zero_count
+        self.__do_book_keeping()
+
+    def __complete_padding(self, length: int):
+        self.__NUM_ROWS += 1
+        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__CRL_FIELD += 1
+
         bit_length = length * 8
 
         len_in_bytes = 8
         for idx in range(len_in_bytes):
-            self.__FIELD_VALUE[zero_count + len_in_bytes - idx - 1] = bit_length & 0xFF
+            self.__FIELD_VALUE[len_in_bytes - idx - 1] = bit_length & 0xFF
             bit_length >>= 8
         
-        self.__FIELD_LENGTH = zero_count + len_in_bytes
+        self.__FIELD_LENGTH = len_in_bytes
         self.__do_book_keeping()        
 
     def __set_string_value(self, value: str):
@@ -340,6 +476,20 @@ class CertificateTraceBuilder(TraceBuilder):
                 oid >>= 8 
             self.__do_book_keeping()
 
+    def __set_pubkey_oid_value(self):
+        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+        self.__NUM_ROWS += 1
+
+        if self.__SIGNATURE_ALGO == 1:
+            oid = utils.OID2Hex(constants.OIDs["RSA"])
+            oid = int(oid, 16)
+
+            self.__FIELD_LENGTH = 9
+            for idx in range(9):
+                self.__FIELD_VALUE[8 - idx] = oid & 0xFF
+                oid >>= 8 
+            self.__do_book_keeping()
+
     def __set_serial_number(self):
         self.__NUM_ROWS += 1
         self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
@@ -347,7 +497,7 @@ class CertificateTraceBuilder(TraceBuilder):
 
         index = self.__FIELD_LENGTH - 1
         copy = self.__input_data["Serial"]
-        while index > 0:
+        while index > -1:
             self.__FIELD_VALUE[index] = copy & 0xFF
             copy >>= 8
             index -= 1
@@ -381,7 +531,7 @@ class CertificateTraceBuilder(TraceBuilder):
 
     def __parse_signature_and_key(self):
         signature_oid = self.__input_data["SignatureAlgorithm"]
-        public_key = self.__input_data["PublicKey"]
+        public_key = self.__input_data["IssuerPublicKey"]
         signature = self.__input_data["Signature"]
         
         if signature_oid == constants.OIDs["SHA256_ECDSA"]:
@@ -525,9 +675,12 @@ class CertificateTraceBuilder(TraceBuilder):
             self.__build_row(trace, in_memory)
 
     def __update_accumulators(self):
+        assert self.__ACCUMULATORS[0] == 0, "Disposal of ACCUMULATOR OBJECT detected"
+
         for idx in range(1, len(self.__ACCUMULATORS)):
             self.__ACCUMULATORS[idx - 1] = self.__ACCUMULATORS[idx]
         self.__ACCUMULATORS[-1] = self.__FIELD_VALUE[0]
+
         self.__raw += self.__FIELD_VALUE[0].to_bytes(1)
 
         for idx in range(1, len(self.__FIELD_VALUE)):

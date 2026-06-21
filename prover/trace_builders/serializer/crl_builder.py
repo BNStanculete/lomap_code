@@ -19,6 +19,12 @@ class CrlTraceBuilder(TraceBuilder):
         """
         self.__hasPadding = not self.__hasPadding
 
+    def get_raw(self):
+        return self.__raw
+
+    def setPadding(self, padding):
+        self.__hasPadding = padding
+
     def set_input(self, input_data: dict):
         self.__input_data = input_data
         self.__reset_registers()
@@ -72,29 +78,51 @@ class CrlTraceBuilder(TraceBuilder):
             partial(self.__write_value_encoding, trace, in_memory)
         ], trace, in_memory)
 
-        for pair in self.__input_data["CRLFields"]["Issuer"]:
+        for pair in self.__input_data["CRLFields"]["Issuer"][::-1]:
             (_, oid), (_, value), (_, length), (_, sublength) = pair.items()
 
-            self.__conditional_serialize([
-                partial(self.__set_header, constants.SET, length),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_header, constants.SEQUENCE, sublength),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_oid_header, oid),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_oid_value, oid),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_header, constants.UTF8_STRING, len(value)),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_string_value, value),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-            ], trace, in_memory)
+            if oid != 'C':
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.SET, length),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.SEQUENCE, sublength),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_header, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_value, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.UTF8_STRING, len(value)),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_string_value, value),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
+            else:
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.SET, length),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.SEQUENCE, sublength),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_header, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_oid_value, oid),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.PRINTABLE_STRING, len(value)),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_string_value, value),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
 
         # 5) We now encode the time interval fields
         self.__conditional_serialize([
@@ -117,66 +145,59 @@ class CrlTraceBuilder(TraceBuilder):
             ], trace, in_memory)
 
         # 6) We encode the revoked serials
-        self.__conditional_serialize([
-            partial(self.__set_header, constants.SEQUENCE, self.__input_data["CRLFields"]["RevokedLength"], True),
-            partial(self.__build_row, trace, in_memory),
-            partial(self.__write_value_encoding, trace, in_memory),
-        ], trace, in_memory)
-
-        for revoked_item in self.__input_data["CRLFields"]["RevokedSerials"]:
-            (_, serial), (_, time), (_, length) = revoked_item.items()
-            copy = serial
-            byte_counter = 0
-
-            while copy > 0:
-                byte_counter += 1
-                copy >>= 8
-
+        if self.__input_data["CRLFields"]["RevokedLength"] > 0:
             self.__conditional_serialize([
-                partial(self.__set_header, constants.SEQUENCE, length),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_header, constants.INTEGER, byte_counter),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_revoked_serial, serial),         
+                partial(self.__set_header, constants.SEQUENCE, self.__input_data["CRLFields"]["RevokedLength"], True),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory),
             ], trace, in_memory)
 
-            self.__conditional_serialize([
-                partial(self.__set_header, constants.UTC_TIME, len(time)),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_string_value, time),
-                partial(self.__build_row, trace, in_memory),
-                partial(self.__write_value_encoding, trace, in_memory),
-            ], trace, in_memory)
+            for revoked_item in self.__input_data["CRLFields"]["RevokedSerials"]:
+                (_, serial), (_, time), (_, length) = revoked_item.items()
+                copy = serial
+                byte_counter = 0
+
+                while copy > 0:
+                    byte_counter += 1
+                    copy >>= 8
+
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.SEQUENCE, length),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_header, constants.INTEGER, byte_counter),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_revoked_serial, serial),         
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
+
+                self.__conditional_serialize([
+                    partial(self.__set_header, constants.UTC_TIME, len(time)),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                    partial(self.__set_string_value, time),
+                    partial(self.__build_row, trace, in_memory),
+                    partial(self.__write_value_encoding, trace, in_memory),
+                ], trace, in_memory)
 
         # 7) We write the CRL extensions and the 0x80 byte of the SHA-256 padding
         ext_bytes = literal_eval(self.__input_data["CRLFields"]["Extensions"])
         ext_bytes += 0x80.to_bytes(1)
         
         for byte in ext_bytes:
-            if self.__CRL_LENGTH == 0:
-                self.__CRL_END = 1
-                self.__CRL_FIELD += 1
-
-            self.__NUM_ROWS += 1
-            self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
-            self.__CRL_FIELD += 1
-
-            self.__FIELD_LENGTH = 1
-            self.__FIELD_VALUE[0] = byte
-            self.__do_book_keeping()
-
             self.__conditional_serialize([
+                partial(self.__write_extension_byte, byte),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__write_value_encoding, trace, in_memory)
             ], trace, in_memory)
 
         # 8) We set the hash padding and perform 1 more round
         self.__conditional_serialize([
+            partial(self.__add_zeroes, self.__input_data["CRLFields"]["TBSLength"]),
+            partial(self.__build_row, trace, in_memory),
+            partial(self.__write_value_encoding, trace, in_memory),
             partial(self.__complete_padding, self.__input_data["CRLFields"]["TBSLength"]),
             partial(self.__build_row, trace, in_memory),
             partial(self.__write_value_encoding, trace, in_memory)
@@ -191,6 +212,30 @@ class CrlTraceBuilder(TraceBuilder):
 
         if self.__hasPadding:
             self.__pad_rows(trace, in_memory)
+
+        return trace
+
+    def __add_zeroes(self, length: int):
+        self.__NUM_ROWS += 1
+        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__CRL_FIELD += 1
+
+        zero_count = (56 - ((length + 1) % 64)) % 64
+        self.__FIELD_LENGTH = zero_count
+        self.__do_book_keeping()
+
+    def __write_extension_byte(self, byte):
+        if self.__CRL_LENGTH == 0:
+            self.__CRL_END = 1
+            self.__CRL_FIELD += 1
+
+        self.__NUM_ROWS += 1
+        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__CRL_FIELD += 1
+
+        self.__FIELD_LENGTH = 1
+        self.__FIELD_VALUE[0] = byte
+        self.__do_book_keeping()
 
     def __write_signature_trace(self, signature_trace, trace, in_memory):
         Placeholder = [0] * 4
@@ -250,15 +295,14 @@ class CrlTraceBuilder(TraceBuilder):
         self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
         self.__CRL_FIELD += 1
 
-        zero_count = (56 - ((length + 1) % 64)) % 64
         bit_length = length * 8
 
         len_in_bytes = 8
         for idx in range(len_in_bytes):
-            self.__FIELD_VALUE[zero_count + len_in_bytes - idx - 1] = bit_length & 0xFF
+            self.__FIELD_VALUE[len_in_bytes - idx - 1] = bit_length & 0xFF
             bit_length >>= 8
         
-        self.__FIELD_LENGTH = zero_count + len_in_bytes
+        self.__FIELD_LENGTH = len_in_bytes
         self.__do_book_keeping()
 
     def __set_revoked_serial(self, serial: int):

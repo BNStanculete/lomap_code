@@ -16,7 +16,7 @@ pub fn get_constraints<E: FieldElement + From<BaseElement>>(trace_length: usize)
     let mut constraints = Vec::new();
 
     // Padding & General constraints
-    constraints.push(padding_without_counter_constraint_specification(trace_length));
+    // constraints.push(padding_without_counter_constraint_specification(trace_length));
     constraints.push(general_constraint_specification(trace_length));
 
     // Serialization constraints

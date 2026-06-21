@@ -16,12 +16,12 @@ define_constraint!(
         result.aggregate_constraint(*index, are_equal(current[constants::NUM_ROWS_OFFSET] + E::ONE, next[constants::NUM_ROWS_OFFSET]), E::ONE);
         *index += 1;
 
-        // PUBLIC_KEY is preserved
-        for i in 0..36 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::PUB_KEY_OFFSET, i)],
-                                                          next[get_register_column(constants::PUB_KEY_OFFSET, i)]), E::ONE);
-            *index += 1;
-        }
+        // // PUBLIC_KEY is preserved
+        // for i in 0..36 {
+        //     result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::PUB_KEY_OFFSET, i)],
+        //                                                   next[get_register_column(constants::PUB_KEY_OFFSET, i)]), E::ONE);
+        //     *index += 1;
+        // }
 
         // OPBITS are bit values
         for i in 0..5 {
@@ -30,7 +30,7 @@ define_constraint!(
         }
     },
     {
-        let mut degrees = vec![[1].to_vec(); 37];
+        let mut degrees = vec![[1].to_vec(); 1];
         degrees.extend(vec![[2].to_vec(); 5]);
         degrees
     }

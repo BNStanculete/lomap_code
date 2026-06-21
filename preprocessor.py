@@ -174,9 +174,14 @@ def get_object_lengths(object_path: str, is_certificate: bool = False) -> list[i
             len(tbs["issuer"].contents)
         ]
 
+        issuer_lengths = []
         for rdn in tbs["issuer"].chosen:
-            extracted_lengths.append(len(rdn.contents))
-            extracted_lengths.append(len(rdn[0].contents))
+            issuer_lengths.append([len(rdn.contents), len(rdn[0].contents)])
+        issuer_lengths.reverse()
+
+        for item in issuer_lengths:
+            extracted_lengths.append(item[0])
+            extracted_lengths.append(item[1])
 
         revoked = tbs["revoked_certificates"]
 
@@ -192,17 +197,29 @@ def get_object_lengths(object_path: str, is_certificate: bool = False) -> list[i
         tbs = cert_obj["tbs_certificate"]
 
         extracted_lengths = [
-            len(tbs.contents),
+            len(tbs.dump()),
             len(tbs["issuer"].contents),
         ]
+
+        issuer_lengths = []
         for rdn in tbs["issuer"].chosen:
-            extracted_lengths.append(len(rdn.contents))
-            extracted_lengths.append(len(rdn[0].contents))
+            issuer_lengths.append([len(rdn.contents), len(rdn[0].contents)])
+        issuer_lengths.reverse()
+
+        for item in issuer_lengths:
+            extracted_lengths.append(item[0])
+            extracted_lengths.append(item[1])
 
         extracted_lengths.append(len(tbs["subject"].contents))
+
+        subject_lengths = []
         for rdn in tbs["subject"].chosen:
-            extracted_lengths.append(len(rdn.contents))
-            extracted_lengths.append(len(rdn[0].contents))
+            subject_lengths.append([len(rdn.contents), len(rdn[0].contents)])
+        subject_lengths.reverse()
+
+        for item in subject_lengths:
+            extracted_lengths.append(item[0])
+            extracted_lengths.append(item[1])
 
     return extracted_lengths
 

@@ -9,6 +9,7 @@ import os
 
 from subprocess import run
 from prover.trace_builders.serializer import CrlTraceBuilder
+from prover.trace_builders.serializer import AuthenticationTraceBuilder
 
 from poseidon_py import poseidon_hash
 
@@ -42,7 +43,7 @@ def write_ets_nodes(message_block: list[str]) -> int:
     trust_store_bytes = 0
 
     # Last element is the prover commitment
-    while index < len(message_block) - 1:
+    while index < len(message_block):
         entity_cn = message_block[index]
 
         if Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).exists():
@@ -63,20 +64,21 @@ def write_ets_nodes(message_block: list[str]) -> int:
             else:
                 cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).stat().st_size
 
-        next_cn = message_block[index]
-        if next_cn == entity_cn:
-            if Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).exists():
-                index += 4
-                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
-            else:
-                print(f"[+] Writing CRL ETS Node {entity_cn + '.loapcrl'}")
-                with open(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl"), "w") as file:
-                    for _ in range(4):
-                        file.write(message_block[index])
-                        file.write("\n")
-                        index += 1
-                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
-    return (cache_bytes, trust_store_bytes)
+        if index < len(message_block):
+            next_cn = message_block[index]
+            if next_cn == entity_cn:
+                if Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).exists():
+                    index += 4
+                    cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
+                else:
+                    print(f"[+] Writing CRL ETS Node {entity_cn + '.loapcrl'}")
+                    with open(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl"), "w") as file:
+                        for _ in range(4):
+                            file.write(message_block[index])
+                            file.write("\n")
+                            index += 1
+                    cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
+        return (cache_bytes, trust_store_bytes)
 
 def get_poseidon_blocks(list):
     hashable_blocks = []
@@ -135,6 +137,7 @@ if __name__ == '__main__':
     print(f"[+] Initializaing the trace builders...")
 
     CRLUpdateBuilder = CrlTraceBuilder(join(temp_path, "proofs", "trace.txt"))
+    AuthenticationBuilder = AuthenticationTraceBuilder(join(temp_path, "proofs", "trace.txt"))
 
     for test in test_data.keys():
         print(f"[+] Processing test case {test}...")
@@ -193,6 +196,12 @@ if __name__ == '__main__':
                         if name_part["OID"] == "CN" and name_part["Value"] != key:
                             proof_data[key]["NextInChain"] = name_part["Value"]
 
+                    next_in_chain = proof_data[key]["NextInChain"]
+                    if next_in_chain != '':
+                        proof_data[key]["Certificate"]["IssuerPublicKey"] = proof_data[next_in_chain]["Certificate"]["PublicKey"]
+                    else:
+                        proof_data[key]["Certificate"]["IssuerPublicKey"] = proof_data[key]["Certificate"]["PublicKey"]
+
                 key = [x for x in input_data["Certificates"].keys() if x.startswith("Leaf")]
                 proof_data["ProverCertificate"] = {
                     "Certificate": input_data["Certificates"][key[0]],
@@ -204,9 +213,13 @@ if __name__ == '__main__':
                     if name_part["OID"] == "CN":
                         proof_data["ProverCertificate"]["NextInChain"] = name_part["Value"]
 
+                next_in_chain = proof_data["ProverCertificate"]["NextInChain"]
+                proof_data["ProverCertificate"]["Certificate"]["IssuerPublicKey"] = proof_data[next_in_chain]["Certificate"]["PublicKey"]
+
                 ets_nodes = []
                 print(f"[+] Writing prover message...")
                 with open(join(temp_path, "message.txt"), "w") as file:
+                    message = []
                     for key in proof_data.keys():
                         message_block = []
 
@@ -218,8 +231,6 @@ if __name__ == '__main__':
                                 message_block.append(oid_part["Value"])
 
                         message_block.append(str(poseidon_hash.poseidon_hash(proof_data[key]["Certificate"]["Serial"], 0)))
-                        message_block.append(proof_data[key]["Certificate"]["NotBefore"])
-                        message_block.append(proof_data[key]["Certificate"]["NotAfter"])
 
                         # Hash the public key
                         pk_blocks = [
@@ -229,8 +240,10 @@ if __name__ == '__main__':
                         ])
 
                         pk_hash = poseidon_hash.poseidon_hash_many(pk_blocks)
-
                         message_block.append(str(pk_hash))
+
+                        message_block.append(proof_data[key]["Certificate"]["NotBefore"])
+                        message_block.append(proof_data[key]["Certificate"]["NotAfter"])
 
                         # Hash the cert representative
                         cert_hash = poseidon_hash.poseidon_hash_many(
@@ -254,12 +267,7 @@ if __name__ == '__main__':
                             crl_block.append(str(crl_hash))
                             message_block.extend(crl_block)
                         
-                        # Hash the block
-                        block_hash = poseidon_hash.poseidon_hash_many(
-                            get_poseidon_blocks(message_block)
-                        )                
-
-                        message_block.append(str(block_hash))
+                        message.extend(message_block)
 
                         # Write block to file
                         for item in message_block:
@@ -273,6 +281,47 @@ if __name__ == '__main__':
                         print("[+] Accumulating CACHE and TrustStore metrics...")
                         metrics[test_data[test]["TestSuite"]]["TrustStore"] += trust_store
                         metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"] += cache
+
+                    # Hash the block
+                    block_hash = poseidon_hash.poseidon_hash_many(
+                        get_poseidon_blocks(message)
+                    )                
+
+                    file.write(str(block_hash))
+                    file.write("\n")
+                start_ns = toggle_measurement()
+
+                print("[+] Building STARK trace...")
+                for index, key in enumerate(proof_data.keys()):
+                    next_in_chain = proof_data[key]["NextInChain"]
+
+                    if next_in_chain != '':
+                        proof_data[next_in_chain]["CRL"]["ProverSerial"] = proof_data[key]["Certificate"]["Serial"]
+                        proof_data[next_in_chain]["CRL"]["PublicKey"] = proof_data[next_in_chain]["Certificate"]["PublicKey"]
+                AuthenticationBuilder.set_input(proof_data)
+                AuthenticationBuilder.build_trace(False)
+
+                print("[+] Building & Verifying STARK proof...")
+                result = run(STARK_AUTH_COMMAND, capture_output=True, text=True)
+                stop_ns = toggle_measurement()
+
+                print(f"[+] Separating prover & verifier metrics...")
+                prover_memory_kb = extract_metric(result.stderr, PROVER_MEMORY_MASK)
+                prover_time_sec = extract_metric(result.stdout, PROVER_TIME_MASK)
+                proof_size_bytes = extract_metric(result.stdout, PROOF_SIZE_MASK)
+
+                verifier_memory_bytes = extract_metric(result.stdout, VERIFIER_MEMORY_MASK)
+                verifier_time_ms = extract_metric(result.stdout, VERIFIER_TIME_MASK)
+
+                print(f"[+] Aggregating metrics...")
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"] += prover_time_sec
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"] += verifier_time_ms
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"] += verifier_memory_bytes
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"] += proof_size_bytes
+
+                print(f"[+] Cleaning up...")
+                os.remove(join(temp_path, "proofs", "trace.txt"))
 
 
             elif message.startswith("CRLUpdate"):

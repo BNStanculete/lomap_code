@@ -86,7 +86,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     println!("[+] Running STARK prover & verifier");
     println!("[+] ===============================");
 
-    let proof_options = ProofOptions::new(100, 8, 0, FieldExtension::None, 4, 31, BatchingMethod::Linear, BatchingMethod::Linear);
+    let proof_options = ProofOptions::new(166, 4, 0, FieldExtension::None, 4, 31, BatchingMethod::Linear, BatchingMethod::Linear);
     let mut runtime_path: String = "".to_string();
     let mut ets_path: String = "".to_string();
 
@@ -123,10 +123,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     if args[1] == "auth" {
         let prover_cert = read_certificate(&mut lines)?;
         let mut authorities_vec = Vec::new();
+        println!("[+] Prover Certificate loaded.");
 
         while lines.clone().count() > 1 {
             let authority_cert = read_certificate(&mut lines)?;
+            println!("[+] CA Cert loaded.");
             let authority_crl = read_crl(&mut lines)?;
+            println!("[+] CRL Cert loaded");
 
             authorities_vec.push((authority_cert, authority_crl));
         }
@@ -152,7 +155,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             println!("[+] Received Authentication Message");
             println!("[+] Prover subject: {}", auth_data.cert.subject_cn);
             
-            // TODO: Build proof for authentication
+            // TODO: Replace classes with authentication specific
+            epoch::advance().unwrap();
+            let _ = stats::allocated::read().unwrap();
+
+            let hash_eg = Box::new(CRLUpdateProvable::new(proof_options.clone(), columns));
+
+            epoch::advance().unwrap();
+            println!("[+] Starting proof...");
+            let before_prove = stats::allocated::read().unwrap();
+            let start = std::time::Instant::now();
+            let proof = hash_eg.prove();
+            println!("[+] Proof finalization took {:?}", start.elapsed());
+            epoch::advance().unwrap();
+            let after_prove = stats::allocated::read().unwrap();
+            println!("[+] Heap used during proof: {}", after_prove - before_prove);
+            println!("[+] Proof size: {}", proof.to_bytes().len());
+
+            let verifier = Box::new(CRLUpdateVerifiable::new(
+                proof_options,
+                proof.context.trace_info().length() as u64
+            ));
+
+            epoch::advance().unwrap();
+            let start = std::time::Instant::now();
+            assert!(verifier.verify(proof).is_ok());
+            println!("[+] Verification took {:?}", start.elapsed());
+            epoch::advance().unwrap();
+            let after_verify = stats::allocated::read().unwrap();
+            println!("[+] Heap used during verification: {}", after_verify - before_prove);
+
         }
         Some(Message::CRLUpdate(update_data)) => {
             println!("[+] Received CRLUpdate Message");

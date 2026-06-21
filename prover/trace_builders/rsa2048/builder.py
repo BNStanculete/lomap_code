@@ -21,7 +21,7 @@ class RSA2048TraceBuilder(TraceBuilder):
                 for _ in range(64):
                     self.__build_SQM_step(idx, trace, in_memory)
 
-        assert self.__HASH == self.__REPRESENTATIVE[28:]
+        assert self.__HASH == self.__REPRESENTATIVE[28:], f"{self.__HASH} vs {self.__REPRESENTATIVE}"
 
         # Final padding
         if self.__hasPadding:
