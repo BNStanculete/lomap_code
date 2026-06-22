@@ -1,0 +1,21 @@
+{
+    "Nr.Tests": 10,
+    "PKIConfiguration": {
+        "ChainLength": [
+            5,
+            5
+        ],
+        "RevokedCertificates": [
+            10,
+            10
+        ],
+        "AvailableSignatures": [
+            "RSA-2048"
+        ]
+    },
+    "MessageFlow": [
+        {
+            "Type": "Authentication"
+        }
+    ]
+}

@@ -76,6 +76,11 @@ if __name__ == '__main__':
                 },
                 "TrustStore": 0
             }
+            tested_flows[test_data[test]["TestSuite"]] = {
+                "Authentication": 0,
+                "CRLUpdate": 0,
+                "MessageAuthentication": 0
+            }
 
         prover_certificate = None
         with open(prover_certificate_path, "rb") as file:
@@ -97,7 +102,7 @@ if __name__ == '__main__':
             if message.startswith("Authentication"):
                 print("[+] Validating the full certificate chain...")
                 intermediates = [certificate for certificate in test_data[test]["PKIVerifier"].keys() if certificate.startswith("Intermediate")]
-                tested_flows["Authentication"] += 1
+                tested_flows[test_data[test]["TestSuite"]]["Authentication"] += 1
                 crls = []
 
                 print("[+] Constructing shell command...")
@@ -155,7 +160,7 @@ if __name__ == '__main__':
                 print(f"[+] Perf counter: {(elapsed - now) / 1000000000:.4f} seconds")
                 print(f"[+] Peak memory: {memory_in_KB * 1024} bytes")
             elif message.startswith("CRLUpdate"):
-                tested_flows["CRLUpdate"] += 1
+                tested_flows[test_data[test]["TestSuite"]]["CRLUpdate"] += 1
                 print("[+] Verifying non-revocation against CRL...")
 
                 command = [
@@ -184,7 +189,7 @@ if __name__ == '__main__':
 
             elif message.startswith("MessageAuthentication"):
                 print("[+] Verifying message signature...")
-                tested_flows["MessageAuthentication"] += 1
+                tested_flows[test_data[test]["TestSuite"]]["MessageAuthentication"] += 1
 
                 # Start measurement
                 now = start_measurement()
@@ -231,9 +236,9 @@ if __name__ == '__main__':
                 continue
 
             for metric_key in metrics[suite][key].keys():
-                if tested_flows[key] == 0:
+                if tested_flows[suite][key] == 0:
                     continue
-                metrics[suite][key][metric_key] /= tested_flows[key]
+                metrics[suite][key][metric_key] /= tested_flows[suite][key]
     
     print("[+] Storing baseline metrics...")
     with open(f"{res_path}/baseline.json", "w") as file:

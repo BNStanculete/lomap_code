@@ -2,8 +2,8 @@ import math
 
 FIELD_MODULUS = pow(2, 251) + 17 * pow(2, 192) + 1
 
-BLOWUP_FACTOR = 4
-LOG_BLOWUP = 2
+BLOWUP_FACTOR = 32
+LOG_BLOWUP = 5
 LOG_HEIGHT = 20
 A = 16
 

@@ -37,47 +37,50 @@ def extract_metric(output: str, mask: str):
 
     return float(output[start_index + length : stop_index])
 
-def write_ets_nodes(message_block: list[str]) -> int:
+def write_ets_nodes(message_block: list[str], suite) -> int:
     index = 0
     cache_bytes = 0
     trust_store_bytes = 0
+
+    # Make suite directory
+    os.makedirs(join(os.environ["LOAP_ETS_PATH"], suite), exist_ok=True)
 
     # Last element is the prover commitment
     while index < len(message_block):
         entity_cn = message_block[index]
 
-        if Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).exists():
+        if Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).exists():
             index += 7
 
             if not entity_cn.startswith("Root"):
-                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).stat().st_size
+                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).stat().st_size
         else:
-            print(f"[+] Writing ETS Node {entity_cn + '.loapcert'}")
-            with open(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert"), "w") as file:
+            print(f"[+] Writing ETS Node {suite}/{entity_cn + '.loapcert'}")
+            with open(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert"), "w") as file:
                 for _ in range(7):
                     file.write(message_block[index])
                     file.write("\n")
                     index += 1
 
             if entity_cn.startswith("Root"):
-                trust_store_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).stat().st_size
+                trust_store_bytes += Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).stat().st_size
             else:
-                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcert")).stat().st_size
+                cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).stat().st_size
 
         if index < len(message_block):
             next_cn = message_block[index]
             if next_cn == entity_cn:
-                if Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).exists():
+                if Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcrl")).exists():
                     index += 4
-                    cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
+                    cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcrl")).stat().st_size
                 else:
-                    print(f"[+] Writing CRL ETS Node {entity_cn + '.loapcrl'}")
-                    with open(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl"), "w") as file:
+                    print(f"[+] Writing CRL ETS Node {suite}/{entity_cn + '.loapcrl'}")
+                    with open(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcrl"), "w") as file:
                         for _ in range(4):
                             file.write(message_block[index])
                             file.write("\n")
                             index += 1
-                    cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], entity_cn + ".loapcrl")).stat().st_size
+                    cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcrl")).stat().st_size
         return (cache_bytes, trust_store_bytes)
 
 def get_poseidon_blocks(list):
@@ -146,6 +149,10 @@ if __name__ == '__main__':
         if test_data[test]["TestSuite"] not in metrics.keys():
             metrics[test_data[test]["TestSuite"]] = {
                 "Authentication": {
+                    "Prover": {
+                        "CPU": 0,
+                        "RAM": 0,
+                    },
                     "CPU": 0,
                     "RAM": 0,
                     "BW": 0,
@@ -167,13 +174,18 @@ if __name__ == '__main__':
                 },
                 "TrustStore": 0
             }
+            tested_flows[test_data[test]["TestSuite"]] = {
+                "Authentication": 0,
+                "CRLUpdate": 0,
+                "MessageAuthentication": 0
+            }
 
         for message in test_data[test]["Flow"]:
             print(f"[+] Loading prover inputs...")
             input_data = test_data[test]["LOAPProver"][message]
 
             if message.startswith("Authentication"):
-                tested_flows["Authentication"] += 1
+                tested_flows[test_data[test]["TestSuite"]]["Authentication"] += 1
                 print(f"[+] Executing proofs and verification for {message}")
                 print(f"[+] Grouping CA certificates with CRLs...")
                 proof_data = {}
@@ -276,7 +288,7 @@ if __name__ == '__main__':
 
                         # Write block to ets
                         print("[+] Updating the ETS...")
-                        cache, trust_store = write_ets_nodes(message_block)
+                        cache, trust_store = write_ets_nodes(message_block, test_data[test]["TestSuite"])
 
                         print("[+] Accumulating CACHE and TrustStore metrics...")
                         metrics[test_data[test]["TestSuite"]]["TrustStore"] += trust_store
@@ -325,7 +337,7 @@ if __name__ == '__main__':
 
 
             elif message.startswith("CRLUpdate"):
-                tested_flows["CRLUpdate"] += 1
+                tested_flows[test_data[test]["TestSuite"]]["CRLUpdate"] += 1
                 print(f"[+] Executing proofs and verification for {message}")
                 print(f"[+] Writing prover message...")
                 with open(join(temp_path, "message.txt"), "w") as file:
@@ -386,15 +398,15 @@ if __name__ == '__main__':
         for message in metrics[test_suite].keys():
             if message == "TrustStore":
                 continue
-            if tested_flows[message] == 0:
+            if tested_flows[test_suite][message] == 0:
                 continue
 
             for key in metrics[test_suite][message].keys():
                 if key == "Prover":
-                    metrics[test_suite][message][key]["CPU"] /= tested_flows[message]
-                    metrics[test_suite][message][key]["RAM"] /= tested_flows[message]
+                    metrics[test_suite][message][key]["CPU"] /= tested_flows[test_suite][message]
+                    metrics[test_suite][message][key]["RAM"] /= tested_flows[test_suite][message]
                 else:
-                    metrics[test_suite][message][key] /= tested_flows[message]
+                    metrics[test_suite][message][key] /= tested_flows[test_suite][message]
 
     print("[+] Writing metrics to file...")
     with open(f"{res_path}/loap.json", "w") as file:

@@ -278,10 +278,15 @@ class CertificateTraceBuilder(TraceBuilder):
             ], trace, in_memory)
 
         # 8) We set the hash padding and perform 1 more round
+        self.__CRL_FIELD += 1
+        for _ in range(self.__get_num_zeroes(self.__input_data["TBSLength"])):
+            self.__conditional_serialize([
+                partial(self.__add_zero),
+                partial(self.__build_row, trace, in_memory),
+                partial(self.__write_value_encoding, trace, in_memory),
+            ], trace, in_memory)
+
         self.__conditional_serialize([
-            partial(self.__add_zeroes, self.__input_data["TBSLength"]),
-            partial(self.__build_row, trace, in_memory),
-            partial(self.__write_value_encoding, trace, in_memory),
             partial(self.__complete_padding, self.__input_data["TBSLength"]),
             partial(self.__build_row, trace, in_memory),
             partial(self.__write_value_encoding, trace, in_memory)
@@ -386,14 +391,14 @@ class CertificateTraceBuilder(TraceBuilder):
 
         return (signature, repr, pub_key)
 
-    def __add_zeroes(self, length: int):
+    def __add_zero(self):
         self.__NUM_ROWS += 1
+        self.__FIELD_LENGTH = 1
         self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
-        self.__CRL_FIELD += 1
-
-        zero_count = (56 - ((length + 1) % 64)) % 64
-        self.__FIELD_LENGTH = zero_count
         self.__do_book_keeping()
+
+    def __get_num_zeroes(self, length: int):
+        return (56 - ((length + 1) % 64)) % 64
 
     def __complete_padding(self, length: int):
         self.__NUM_ROWS += 1
