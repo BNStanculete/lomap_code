@@ -150,27 +150,27 @@ if __name__ == '__main__':
             metrics[test_data[test]["TestSuite"]] = {
                 "Authentication": {
                     "Prover": {
-                        "CPU": 0,
-                        "RAM": 0,
+                        "CPU": [0, 0, 0],
+                        "RAM": [0, 0, 0],
                     },
-                    "CPU": 0,
-                    "RAM": 0,
-                    "BW": 0,
-                    "CACHE": 0,
+                    "CPU": [0, 0, 0],
+                    "RAM": [0, 0, 0],
+                    "BW": [0, 0, 0],
+                    "CACHE": [0, 0, 0],
                 },
                 "CRLUpdate": {
                     "Prover": {
-                        "CPU": 0,
-                        "RAM": 0,
+                        "CPU": [0, 0, 0],
+                        "RAM": [0, 0, 0],
                     },
-                    "CPU": 0,
-                    "RAM": 0,
-                    "BW": 0,
+                    "CPU": [0, 0, 0],
+                    "RAM": [0, 0, 0],
+                    "BW": [0, 0, 0],
                 },
                 "MessageAuthentication": {
-                    "CPU": 0,
-                    "RAM": 0,
-                    "BW": 0,
+                    "CPU": [0, 0, 0],
+                    "RAM": [0, 0, 0],
+                    "BW": [0, 0, 0],
                 },
                 "TrustStore": 0
             }
@@ -292,7 +292,12 @@ if __name__ == '__main__':
 
                         print("[+] Accumulating CACHE and TrustStore metrics...")
                         metrics[test_data[test]["TestSuite"]]["TrustStore"] += trust_store
-                        metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"] += cache
+                        metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][2] += cache
+
+                        metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1] = \
+                            max(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1], cache)
+                        metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = \
+                            min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0], cache)
 
                     # Hash the block
                     block_hash = poseidon_hash.poseidon_hash_many(
@@ -326,15 +331,38 @@ if __name__ == '__main__':
                 verifier_time_ms = extract_metric(result.stdout, VERIFIER_TIME_MASK)
 
                 print(f"[+] Aggregating metrics...")
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"] += prover_time_sec
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"] += verifier_time_ms
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"] += verifier_memory_bytes
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"] += proof_size_bytes
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][2] += prover_time_sec
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][2] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][2] += verifier_time_ms
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][2] += verifier_memory_bytes
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][2] += proof_size_bytes
+
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][1], prover_time_sec)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][1], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0], prover_time_sec)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][1], verifier_time_ms)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][1], verifier_memory_bytes)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][1], proof_size_bytes)
+
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0], verifier_time_ms)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0], verifier_memory_bytes)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0], proof_size_bytes)
 
                 print(f"[+] Cleaning up...")
                 os.remove(join(temp_path, "proofs", "trace.txt"))
-
 
             elif message.startswith("CRLUpdate"):
                 tested_flows[test_data[test]["TestSuite"]]["CRLUpdate"] += 1
@@ -384,11 +412,35 @@ if __name__ == '__main__':
                 verifier_time_ms = extract_metric(result.stdout, VERIFIER_TIME_MASK)
 
                 print(f"[+] Aggregating metrics...")
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"] += prover_time_sec
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"] += verifier_time_ms
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"] += verifier_memory_bytes
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"] += proof_size_bytes
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][2] += prover_time_sec
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][2] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][2] += verifier_time_ms
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][2] += verifier_memory_bytes
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][2] += proof_size_bytes
+
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][1], prover_time_sec)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][1], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0], prover_time_sec)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][1], verifier_time_ms)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][1], verifier_memory_bytes)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1], proof_size_bytes)
+
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0], verifier_time_ms)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0], verifier_memory_bytes)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0], proof_size_bytes)
 
                 print(f"[+] Cleaning up...")
                 os.remove(join(temp_path, "proofs", "trace.txt"))
@@ -403,10 +455,10 @@ if __name__ == '__main__':
 
             for key in metrics[test_suite][message].keys():
                 if key == "Prover":
-                    metrics[test_suite][message][key]["CPU"] /= tested_flows[test_suite][message]
-                    metrics[test_suite][message][key]["RAM"] /= tested_flows[test_suite][message]
+                    metrics[test_suite][message][key]["CPU"][2] /= tested_flows[test_suite][message]
+                    metrics[test_suite][message][key]["RAM"][2] /= tested_flows[test_suite][message]
                 else:
-                    metrics[test_suite][message][key] /= tested_flows[test_suite][message]
+                    metrics[test_suite][message][key][2] /= tested_flows[test_suite][message]
 
     print("[+] Writing metrics to file...")
     with open(f"{res_path}/loap.json", "w") as file:

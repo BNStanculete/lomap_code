@@ -57,22 +57,23 @@ if __name__ == '__main__':
         prover_certificate_path = test_data[test]["PKIVerifier"][prover_CN]["Certificate"]
 
         if test_data[test]["TestSuite"] not in metrics.keys():
+            root_cns = []
             metrics[test_data[test]["TestSuite"]] = {
                 "Authentication": {
-                    "CPU": 0,
-                    "RAM": 0,
-                    "BW": 0,
-                    "CACHE": 0,
+                    "CPU": [0, 0, 0],
+                    "RAM": [0, 0, 0],
+                    "BW": [0, 0, 0],
+                    "CACHE": [0, 0, 0],
                 },
                 "CRLUpdate": {
-                    "CPU": 0,
-                    "RAM": 0,
-                    "BW": 0,
+                    "CPU": [0, 0, 0],
+                    "RAM": [0, 0, 0],
+                    "BW": [0, 0, 0],
                 },
                 "MessageAuthentication": {
-                    "CPU": 0,
-                    "RAM": 0,
-                    "BW": 0,
+                    "CPU": [0, 0, 0],
+                    "RAM": [0, 0, 0],
+                    "BW": [0, 0, 0],
                 },
                 "TrustStore": 0
             }
@@ -152,10 +153,28 @@ if __name__ == '__main__':
                     cache += cert_size
 
                 print(f"[+] Updating Metrics...")
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"] += (elapsed - now) / 1000000000
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"] += memory_in_KB * 1024
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"] += bw
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"] += cache
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][2] += (elapsed - now) / 1000000000
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][2] += memory_in_KB * 1024
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][2] += bw
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][2] += cache
+
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][1], (elapsed - now) / 1000000000)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][1], memory_in_KB * 1024)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][1], bw)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1], cache)
+
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0], (elapsed - now) / 1000000000)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0], memory_in_KB * 1024)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0], bw)
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0], cache)
 
                 print(f"[+] Perf counter: {(elapsed - now) / 1000000000:.4f} seconds")
                 print(f"[+] Peak memory: {memory_in_KB * 1024} bytes")
@@ -183,9 +202,23 @@ if __name__ == '__main__':
                 bw = Path(test_data[test]["PKIVerifier"][prover_CN]["RevocationList"]).stat().st_size
 
                 print(f"[+] Updating Metrics...")
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"] += (elapsed - now) / 1000000000
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"] += memory_in_KB * 1024
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"] += bw
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][2] += (elapsed - now) / 1000000000
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][2] += memory_in_KB * 1024
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][2] += bw
+
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][1], (elapsed - now) / 1000000000)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][1], memory_in_KB * 1024)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1], bw)
+
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0], (elapsed - now) / 1000000000)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0], memory_in_KB * 1024)
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = \
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0], bw)
 
             elif message.startswith("MessageAuthentication"):
                 print("[+] Verifying message signature...")
@@ -220,11 +253,25 @@ if __name__ == '__main__':
                     signature_size += ceil(log2(number)) // 8
 
                 print("[+] Updating baseline metrics...")
-                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"] += ((elapsed - now) / 1000000000.0)
-                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"] += tracemalloc.get_traced_memory()[1]
-                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"] +=                                       \
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][2] += ((elapsed - now) / 1000000000.0)
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][2] += tracemalloc.get_traced_memory()[1]
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][2] +=                                       \
                     len(test_data[test]["LOAPProver"][message]["Message"]) +                                            \
                     signature_size
+
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][1], (elapsed - now) / 1000000000.0)
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][1], tracemalloc.get_traced_memory()[1])
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][1], len(test_data[test]["LOAPProver"][message]["Message"]) + signature_size)
+
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0], (elapsed - now) / 1000000000.0)
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0], tracemalloc.get_traced_memory()[1])
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] = \
+                    min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0], len(test_data[test]["LOAPProver"][message]["Message"]) + signature_size)
             else:
                 print("[-] Invalid message type for ", message)
     
@@ -238,7 +285,7 @@ if __name__ == '__main__':
             for metric_key in metrics[suite][key].keys():
                 if tested_flows[suite][key] == 0:
                     continue
-                metrics[suite][key][metric_key] /= tested_flows[suite][key]
+                metrics[suite][key][metric_key][2] /= tested_flows[suite][key]
     
     print("[+] Storing baseline metrics...")
     with open(f"{res_path}/baseline.json", "w") as file:
