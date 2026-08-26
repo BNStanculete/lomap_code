@@ -16,6 +16,9 @@ from poseidon_py import poseidon_hash
 STARK_PROVER_EXECUTABLE_PATH = join(Path(__file__).resolve().parent,        \
                                     "prover/stark_provers/target/release/loap_stark")
 
+CHECKPOINT_PATH = join(Path(__file__).resolve().parent, \
+                        "checkpoint_latest.json")
+
 PROVER_MEMORY_MASK = "Maximum resident set size (kbytes): "
 PROVER_TIME_MASK = "[+] Proof finalization took "
 PROOF_SIZE_MASK = "[+] Proof size: "
@@ -36,6 +39,16 @@ def extract_metric(output: str, mask: str):
         stop_index -= 1
 
     return float(output[start_index + length : stop_index])
+
+def write_checkpoint(passed_suites: list[str], metrics: dict, tested_flows: dict):
+    checkpoint = {
+        "PassedTests" : passed_suites,
+        "Metrics": metrics,
+        "TestedFlows": tested_flows
+    }
+
+    with open(CHECKPOINT_PATH, "w") as file:
+        dump(checkpoint, file)
 
 def write_ets_nodes(message_block: list[str], suite) -> int:
     index = 0
@@ -127,6 +140,8 @@ if __name__ == '__main__':
         exit(1)
 
     # Running state
+    completed_suites = []
+    passed_suites = []
     root_cns = []
     metrics = {}
     tested_flows = {
@@ -134,6 +149,19 @@ if __name__ == '__main__':
         "CRLUpdate": 0,
         "MessageAuthentication": 0
     }
+
+    if os.path.exists(CHECKPOINT_PATH):
+        print(f"[+] Discovered existing checkpoint.")
+        print(f"[+] Loading saved checkpoint data...")
+
+        check_point_data = None
+        with open(CHECKPOINT_PATH, "r") as file:
+            check_point_data = load(file)
+
+        metrics = check_point_data["Metrics"]
+        tested_flows = check_point_data["TestedFlows"]
+        completed_suites = check_point_data["PassedTests"]
+        passed_suites = check_point_data["PassedTests"]
 
     nr_testcases = len(test_data.keys())
     print(f"[+] Discovered {nr_testcases} test cases.")
@@ -143,10 +171,18 @@ if __name__ == '__main__':
     AuthenticationBuilder = AuthenticationTraceBuilder(join(temp_path, "proofs", "trace.txt"))
 
     for test in test_data.keys():
+        # Skip already completed tests
+        if test_data[test]["TestSuite"] in completed_suites:
+            continue
+
         print(f"[+] Processing test case {test}...")
         print(f"[+] Found {len(test_data[test]["Flow"])} interactions.")
 
         if test_data[test]["TestSuite"] not in metrics.keys():
+            # We completed a new suite. Update the checkpoint
+            write_checkpoint(passed_suites, metrics, tested_flows)
+
+            passed_suites.append(test_data[test]["TestSuite"])
             metrics[test_data[test]["TestSuite"]] = {
                 "Authentication": {
                     "Prover": {
@@ -296,8 +332,12 @@ if __name__ == '__main__':
 
                         metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1] = \
                             max(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1], cache)
-                        metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = \
-                            min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0], cache)
+
+                        if metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] == 0:
+                            metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = cache
+                        else:
+                            metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = \
+                                min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0], cache)
 
                     # Hash the block
                     block_hash = poseidon_hash.poseidon_hash_many(
@@ -306,6 +346,8 @@ if __name__ == '__main__':
 
                     file.write(str(block_hash))
                     file.write("\n")
+
+                auxiliary_file_size = Path(join(temp_path, "message.txt")).stat().st_size
                 start_ns = toggle_measurement()
 
                 print("[+] Building STARK trace...")
@@ -335,31 +377,49 @@ if __name__ == '__main__':
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][2] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][2] += verifier_time_ms
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][2] += verifier_memory_bytes
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][2] += proof_size_bytes
+                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][2] += proof_size_bytes + auxiliary_file_size
 
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][1], prover_time_sec)
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][1], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
 
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0], prover_time_sec)
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0] = prover_time_sec
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["CPU"][0], prover_time_sec)
+
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0] = prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["Prover"]["RAM"][0], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
 
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][1], verifier_time_ms)
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][1], verifier_memory_bytes)
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][1] = \
-                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][1], proof_size_bytes)
+                    max(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][1], proof_size_bytes + auxiliary_file_size)
 
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0], verifier_time_ms)
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0], verifier_memory_bytes)
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0], proof_size_bytes)
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = verifier_time_ms
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0], verifier_time_ms)
+
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = verifier_memory_bytes
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0], verifier_memory_bytes)
+
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = proof_size_bytes + auxiliary_file_size
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0], proof_size_bytes + auxiliary_file_size)
 
                 print(f"[+] Cleaning up...")
                 os.remove(join(temp_path, "proofs", "trace.txt"))
@@ -393,6 +453,7 @@ if __name__ == '__main__':
                     file.write(str(hash))
                     file.write("\n")
 
+                auxiliary_file_size = Path(join(temp_path, "message.txt")).stat().st_size
                 start_ns = toggle_measurement()
 
                 print("[+] Building STARK trace...")
@@ -416,31 +477,49 @@ if __name__ == '__main__':
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][2] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][2] += verifier_time_ms
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][2] += verifier_memory_bytes
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][2] += proof_size_bytes
+                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][2] += proof_size_bytes + auxiliary_file_size
 
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][1], prover_time_sec)
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][1], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
 
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0], prover_time_sec)
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0] = prover_time_sec
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["CPU"][0], prover_time_sec)
+
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0] = prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["Prover"]["RAM"][0], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
 
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][1], verifier_time_ms)
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][1], verifier_memory_bytes)
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1] = \
-                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1], proof_size_bytes)
+                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1], proof_size_bytes + auxiliary_file_size)
 
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0], verifier_time_ms)
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0], verifier_memory_bytes)
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0], proof_size_bytes)
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = verifier_time_ms
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0], verifier_time_ms)
+
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = verifier_memory_bytes
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0], verifier_memory_bytes)
+
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = proof_size_bytes + auxiliary_file_size
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0], proof_size_bytes + auxiliary_file_size)
 
                 print(f"[+] Cleaning up...")
                 os.remove(join(temp_path, "proofs", "trace.txt"))

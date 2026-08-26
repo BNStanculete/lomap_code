@@ -194,3 +194,6 @@ interfaces/
 
 # End of https://www.toptal.com/developers/gitignore/api/rust,python
 old/
+
+# Testing checkpoints
+checkpoint_latest.json

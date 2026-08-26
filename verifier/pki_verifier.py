@@ -266,12 +266,23 @@ if __name__ == '__main__':
                 metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][1], len(test_data[test]["LOAPProver"][message]["Message"]) + signature_size)
 
-                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0], (elapsed - now) / 1000000000.0)
-                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0], tracemalloc.get_traced_memory()[1])
-                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0], len(test_data[test]["LOAPProver"][message]["Message"]) + signature_size)
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] = (elapsed - now) / 1000000000.0
+                else:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0], (elapsed - now) / 1000000000.0)
+
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] == 0:
+                        metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] = tracemalloc.get_traced_memory()[1]
+                else: 
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0], tracemalloc.get_traced_memory()[1])
+
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] = len(test_data[test]["LOAPProver"][message]["Message"]) + signature_size
+                else:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0], len(test_data[test]["LOAPProver"][message]["Message"]) + signature_size)
             else:
                 print("[-] Invalid message type for ", message)
     
