@@ -10,6 +10,7 @@ import os
 from subprocess import run
 from prover.trace_builders.serializer import CrlTraceBuilder
 from prover.trace_builders.serializer import AuthenticationTraceBuilder
+from prover.trace_builders.serializer import MessageTraceBuilder
 
 from poseidon_py import poseidon_hash
 
@@ -35,6 +36,7 @@ def extract_metric(output: str, mask: str):
     length = len(mask)
     stop_index = start_index + length + output[start_index + length:].find("\n")
 
+    print(output)
     while output[start_index + length : stop_index][-1] not in "0123456789":
         stop_index -= 1
 
@@ -130,6 +132,11 @@ if __name__ == '__main__':
         STARK_PROVER_EXECUTABLE_PATH, "auth"
     ]
 
+    STARK_MESSAGE_COMMAND = [
+        "/usr/bin/time", "-v",
+        STARK_PROVER_EXECUTABLE_PATH, "message"
+    ]
+
     test_data = None
     with open(f"{itf_path}/tes.json", "r") as file:
         test_data = load(file)
@@ -169,6 +176,7 @@ if __name__ == '__main__':
 
     CRLUpdateBuilder = CrlTraceBuilder(join(temp_path, "proofs", "trace.txt"))
     AuthenticationBuilder = AuthenticationTraceBuilder(join(temp_path, "proofs", "trace.txt"))
+    MessageAuthenticationBuilder = MessageTraceBuilder(join(temp_path, "proofs", "trace.txt"))
 
     for test in test_data.keys():
         # Skip already completed tests
@@ -204,6 +212,10 @@ if __name__ == '__main__':
                     "BW": [0, 0, 0],
                 },
                 "MessageAuthentication": {
+                    "Prover": {
+                        "CPU": [0, 0, 0],
+                        "RAM": [0, 0, 0],
+                    },
                     "CPU": [0, 0, 0],
                     "RAM": [0, 0, 0],
                     "BW": [0, 0, 0],
@@ -520,6 +532,87 @@ if __name__ == '__main__':
                 else:
                     metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = \
                         min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0], proof_size_bytes + auxiliary_file_size)
+
+                print(f"[+] Cleaning up...")
+                os.remove(join(temp_path, "proofs", "trace.txt"))
+
+            elif message.startswith("MessageAuthentication"):
+                tested_flows[test_data[test]["TestSuite"]]["MessageAuthentication"] += 1
+                print(f"[+] Executing proofs and verification for {message}")
+                print(f"[+] Writing temporary prover message...")
+                with open(join(temp_path, "message.txt"), "w") as file:
+                    for item in input_data["PublicKey"]:
+                        file.write(str(item))
+                        file.write("\n")
+
+                    for item in input_data["Signature"]:
+                        file.write(str(item))
+                        file.write("\n")
+
+                print("[+] Building STARK trace...")
+                MessageAuthenticationBuilder.set_input(input_data)
+                MessageAuthenticationBuilder.build_trace(in_memory=False)
+
+                print("[+] Building & Verifying STARK proof...")
+                result = run(STARK_MESSAGE_COMMAND, capture_output=True, text=True)
+                stop_ns = toggle_measurement()
+
+                print(f"[+] Separating prover & verifier metrics...")
+                prover_memory_kb = extract_metric(result.stderr, PROVER_MEMORY_MASK)
+                prover_time_sec = extract_metric(result.stdout, PROVER_TIME_MASK)
+                proof_size_bytes = extract_metric(result.stdout, PROOF_SIZE_MASK)
+
+                verifier_memory_bytes = extract_metric(result.stdout, VERIFIER_MEMORY_MASK)
+                verifier_time_ms = extract_metric(result.stdout, VERIFIER_TIME_MASK)
+
+                print(f"[+] Aggregating metrics...")
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["CPU"][2] += prover_time_sec
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["RAM"][2] += prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][2] += verifier_time_ms
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][2] += verifier_memory_bytes
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][2] += proof_size_bytes
+
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["CPU"][1], prover_time_sec)
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["RAM"][1], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["CPU"][0] = prover_time_sec
+                else:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["CPU"][0], prover_time_sec)
+
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["RAM"][0] = prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0)
+                else:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["Prover"]["RAM"][0], prover_memory_kb + (tracemalloc.get_traced_memory()[1] / 1024.0))
+
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][1], verifier_time_ms)
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][1], verifier_memory_bytes)
+                metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][1] = \
+                    max(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][1], proof_size_bytes)
+
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] = verifier_time_ms
+                else:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["CPU"][0], verifier_time_ms)
+
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] = verifier_memory_bytes
+                else:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["RAM"][0], verifier_memory_bytes)
+
+                if metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] = proof_size_bytes
+                else:
+                    metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["MessageAuthentication"]["BW"][0], proof_size_bytes)
 
                 print(f"[+] Cleaning up...")
                 os.remove(join(temp_path, "proofs", "trace.txt"))

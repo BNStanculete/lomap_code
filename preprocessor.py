@@ -342,6 +342,7 @@ if __name__ == '__main__':
                         "Message": msg["Parameters"],
                         "Signature": "",
                         "PublicKey": [],
+                        "SignatureAlgorithm": ""
                     }
                     nextMessageAuthentication += 1
                 elif msg["Type"] == "CRLUpdate":
@@ -385,11 +386,13 @@ if __name__ == '__main__':
                         padding.PKCS1v15(),
                         hashes.SHA256())
                     signature = [int(signature.hex(), 16)]
+                    tes_interface[test_case]["LOAPProver"][message]["SignatureAlgorithm"] = "1.2.840.113549.1.1.11"
                 except TypeError:
                     signature = prover_pk.sign(
                         tes_interface[test_case]["LOAPProver"][message]["Message"].encode("utf-8"),
                         ec.ECDSA(hashes.SHA256()))
                     signature = utils.decode_dss_signature(signature)
+                    tes_interface[test_case]["LOAPProver"][message]["SignatureAlgorithm"] = "1.2.840.10045.4.3.2"
 
                 print("[+] Completing TES interface data...")
                 tes_interface[test_case]["LOAPProver"][message]["Signature"] = signature

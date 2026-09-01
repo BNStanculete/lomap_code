@@ -7,6 +7,7 @@ use std::env;
 
 use loap_stark::crlupdate::{CRLUpdateProvable, CRLUpdateVerifiable};
 use loap_stark::crlupdate::TRACE_WIDTH;
+use loap_stark::message_auth::{MessageAuthenticationProvable, MessageAuthenticationVerifiable};
 use loap_stark::{Provable, Verifiable};
 
 use jemallocator::Jemalloc;
@@ -49,9 +50,17 @@ struct AuthenticationData {
     hash: String
 }
 
+#[derive(Debug)]
+struct MessageAuthenticationData {
+    e: String,
+    n: String,
+    signature: String,
+}
+
 enum Message {
     Authentication(AuthenticationData),
-    CRLUpdate(CRLUpdateData)
+    CRLUpdate(CRLUpdateData),
+    MessageAuthentication(MessageAuthenticationData)
 }
 
 // ---- Reading Prover Messages from file ----
@@ -82,11 +91,19 @@ fn read_crl<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<CRLData, &'
     })
 }
 
+fn read_signature<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<MessageAuthenticationData, &'static str> {
+    Ok(MessageAuthenticationData {
+        e: next_line(lines)?,
+        n: next_line(lines)?,
+        signature: next_line(lines)?,
+    })
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>>{
     println!("[+] Running STARK prover & verifier");
     println!("[+] ===============================");
 
-    let proof_options = ProofOptions::new(166, 4, 0, FieldExtension::None, 4, 31, BatchingMethod::Linear, BatchingMethod::Linear);
+    let proof_options = ProofOptions::new(101, 8, 0, FieldExtension::None, 4, 31, BatchingMethod::Linear, BatchingMethod::Linear);
     let mut runtime_path: String = "".to_string();
     let mut ets_path: String = "".to_string();
 
@@ -105,7 +122,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
 
     let args: Vec<_> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: {} <auth|crlupdate>", args[0]);
+        eprintln!("Usage: {} <auth|crlupdate|message>", args[0]);
         std::process::exit(1);
     }
 
@@ -145,6 +162,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
         message = Some(Message::CRLUpdate(CRLUpdateData {
             crl: crl_data
         }));
+    } else if args[1] == "message" {
+        let signature_data = read_signature(&mut lines)?;
+        message = Some(Message::MessageAuthentication(signature_data));
     } else {
         eprintln!("Invalid argument {}", args[1]);
         std::process::exit(1);
@@ -207,6 +227,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
             println!("[+] Proof size: {}", proof.to_bytes().len());
 
             let verifier = Box::new(CRLUpdateVerifiable::new(
+                proof_options,
+                proof.context.trace_info().length() as u64
+            ));
+
+            epoch::advance().unwrap();
+            let start = std::time::Instant::now();
+            assert!(verifier.verify(proof).is_ok());
+            println!("[+] Verification took {:?}", start.elapsed());
+            epoch::advance().unwrap();
+            let after_verify = stats::allocated::read().unwrap();
+            println!("[+] Heap used during verification: {}", after_verify - before_prove);
+        }
+        Some(Message::MessageAuthentication(signature_data)) => {
+            println!("[+] Received MessageAuthentication Message");
+            epoch::advance().unwrap();
+            let _ = stats::allocated::read().unwrap();
+
+            let hash_eg = Box::new(MessageAuthenticationProvable::new(proof_options.clone(), columns));
+
+            epoch::advance().unwrap();
+            println!("[+] Starting proof...");
+            let before_prove = stats::allocated::read().unwrap();
+            let start = std::time::Instant::now();
+            let proof = hash_eg.prove();
+            println!("[+] Proof finalization took {:?}", start.elapsed());
+            epoch::advance().unwrap();
+            let after_prove = stats::allocated::read().unwrap();
+            println!("[+] Heap used during proof: {}", after_prove - before_prove);
+            println!("[+] Proof size: {}", proof.to_bytes().len());
+
+            let verifier = Box::new(MessageAuthenticationVerifiable::new(
                 proof_options,
                 proof.context.trace_info().length() as u64
             ));
