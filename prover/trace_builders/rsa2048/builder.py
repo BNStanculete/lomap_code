@@ -216,6 +216,7 @@ class RSA2048TraceBuilder(TraceBuilder):
 
     def __reset_registers(self):
         self.__NUM_ROWS = 0
+        self.__CONTROL_CODES = [0] * 3
         self.__HASH = [0] * 4
         self.__E = [0] * 4
         self.__N = [0] * 32
@@ -237,6 +238,7 @@ class RSA2048TraceBuilder(TraceBuilder):
 
         return [
             self.__NUM_ROWS,
+            *self.__CONTROL_CODES,
             *self.__HASH,
             *self.__N,
             *self.__E,

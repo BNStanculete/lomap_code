@@ -3,6 +3,25 @@
 TRACE_WIDTH         = 399
 REGISTER_LIMIT      = pow(2, 64)
 
+SUBTRACE_CODES = {
+    "Serializer": (0, 0),
+    "Poseidon": (0, 1),
+    "SHA256": (1, 0),
+    "RSA2048": (1, 1)
+}
+
+SERIALIZER_CONTROL_CODES = {
+    "HeaderSerialization": (0, 0, 0),
+    "FieldSerialization": (0, 0, 1),
+    "AccumulatorLeftAlignment": (0, 1, 0),
+    "AccumulatorRightAlignment": (0, 1, 1),
+    "HashBookkeeping": (1, 0, 0),
+
+    "PoseidonInput": (1, 0, 1),
+    "PoseidonRound": (1, 1, 0),
+    "PoseidonOutput": (1, 1, 1)
+}
+
 OPERATION_CODES = {
     "PaddingWithoutCounter":        (0, 0, 0, 0, 1),
     "PoseidonInput":                (0, 0, 0, 1, 0),
