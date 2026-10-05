@@ -1,21 +1,16 @@
 from prover.trace_builders import TraceBuilder, Trace, next_power_of_two
+from prover.trace_builders.utils import get_modular_inverse, FIELD_MODULUS
 from . import constants, utils
 from copy import deepcopy
 
 class Sha256TraceBuilder(TraceBuilder):
     def __init__(self, trace_file: str):
         self.__trace_file = trace_file
-        self.__hasAttestation = True
         self.__hasPadding = True
         self.__reconstructed = b''
 
     def debug(self):
         return self.__reconstructed
-
-    def toggleAttestation(self):
-        """Toggles whether to include hash attestation in the trace.
-        """
-        self.__hasAttestation = not self.__hasAttestation
 
     def togglePadding(self):
         """Toggles whether to pad the trace to the nearest power of two.
@@ -31,7 +26,10 @@ class Sha256TraceBuilder(TraceBuilder):
         self.__reset_registers()
 
     def set_message_blocks(self, message_block: list[int], hash: list[int] = [0] * 8):
-        """Initialize the builder using message blocks
+        """Initialize the builder using a 512-bit message block.
+
+        Note that this function is intended to be used only when the SHA-256 trace builder is used to construct
+        composite (larger) AIR matrices.
 
         Throws:
             ValueError: More than 1 block provided.
@@ -55,56 +53,94 @@ class Sha256TraceBuilder(TraceBuilder):
         blocks_to_process = True
 
         # Set the initial row
+        self.__CONTROL_CODE = constants.CONTROL_CODES["AlignmentStep"]
         self.__set_input_row(True)
         self.__build_row(trace, in_memory)
+        self.__update_row_counters()
 
         # Process the SHA-256 blocks
         while blocks_to_process:
             for round in range(16):
+                self.__CONTROL_CODE = constants.CONTROL_CODES["FirstHalfRound"]
                 self.__build_first_half_round(round)
                 self.__build_row(trace, in_memory)
+                self.__update_row_counters()
 
+                self.__CONTROL_CODE = constants.CONTROL_CODES["SecondHalfRound"]
                 self.__build_second_half_round()
                 self.__build_row(trace, in_memory)
+                self.__update_row_counters()
 
             for round in range(16, 64):
+                self.__CONTROL_CODE = constants.CONTROL_CODES["ScheduleUpdate"]
                 self.__build_message_schedule()
                 self.__build_row(trace, in_memory)
+                self.__update_row_counters()
 
+                self.__CONTROL_CODE = constants.CONTROL_CODES["FirstHalfRound"]
                 self.__build_first_half_round(round)
                 self.__build_row(trace, in_memory)
+                self.__update_row_counters()
 
+                self.__CONTROL_CODE = constants.CONTROL_CODES["SecondHalfRound"]
                 self.__build_second_half_round()
                 self.__build_row(trace, in_memory)
-            self.__build_hash_update()
-            self.__build_row(trace, in_memory)
+                self.__update_row_counters()
 
             blocks_to_process = (len(self.__message_blocks) != 0)
             if blocks_to_process:
                 self.__set_input_row()
 
-        # Build the size attestation
-        if self.__hasAttestation:
-            self.__build_size_attestation(True)
+            self.__CONTROL_CODE = constants.CONTROL_CODES["AlignmentStep"]
+            self.__build_hash_update()
             self.__build_row(trace, in_memory)
-
-            for _ in range(3):
-                self.__build_size_attestation()
-                self.__build_row(trace, in_memory)
+            self.__update_row_counters()
 
         # Pad to the nearest power of two
         if self.__hasPadding:
-            completed_rows = 177 * self.__num_blocks
-            if self.__hasAttestation:
-                completed_rows += 5
-            for _ in range(completed_rows, next_power_of_two(completed_rows)):
-                self.__NUM_ROWS += 1
-                self.__build_row(trace, in_memory)
+            completed_rows = 177 * self.__num_blocks + 1
+            self.__PADDING_BIT = 1
 
+            for _ in range(completed_rows, next_power_of_two(completed_rows)):
+                self.__build_row(trace, in_memory)
+                self.__update_row_counters()
+                
         return trace
 
+    def __update_row_counters(self):
+        """Increments the row counter and updates the registers that depend on it.
+        """
+        self.__NUM_ROWS += 1
+        self.__QUOTIENT = self.__NUM_ROWS // 177
+        self.__REMAINDER = self.__NUM_ROWS % 177
+        self.__set_inverse()
+
+    def __set_inverse(self):
+        """Computes the modular inverse of 176 - REMAINDER, and stores it in 128-bit limbs.
+        """
+        if self.__REMAINDER != 176:
+            inverse = get_modular_inverse(176 - self.__REMAINDER)
+        else:
+            inverse = 0
+
+        self.__INVERSE[0] = ((inverse >> 128) & (pow(2, 128) - 1))
+        self.__INVERSE[1] = (inverse & (pow(2, 128) - 1))
+
+        if self.__REMAINDER != 176:
+            assert (((self.__INVERSE[0] << 128) | self.__INVERSE[1]) * (176 - self.__REMAINDER)) % FIELD_MODULUS == 1, f"Wrong inverse computation for {176 - self.__REMAINDER}"
+        else:
+            assert self.__INVERSE == [0, 0], f"Inverse not nullified when REMAINDER = 176"
+
     def __reset_registers(self):
+        """Resets the trace registers to their base values.
+        """
         self.__NUM_ROWS = 0
+        self.__QUOTIENT = 0
+        self.__REMAINDER = 0
+        self.__INVERSE = [0, 0]
+        self.__PADDING_BIT = 0
+        self.__CONTROL_CODE = [0, 0]
+        self.__W_SELECTOR = [0 for _ in range(17)]
         self.__W = [0 for _ in range(16)]
         self.__A, self.__B, self.__C, self.__D, self.__E, self.__F, self.__G, self.__H, self.__T1, self.__T2 = 0,0,0,0,0,0,0,0,0,0
         self.__BITS = [0 for _ in range(224)]
@@ -116,12 +152,20 @@ class Sha256TraceBuilder(TraceBuilder):
         # Carries 5     are allocated for A
         self.__CARRY = [0 for _ in range(8)]
         self.__HASH = [0 for _ in range(8)]
+        self.__W_SELECTOR[0] = 1
+        self.__set_inverse()
 
     def __build_registers(self) -> list[int]:
         """Converts the registers into a trace row.
         """
         return [
             self.__NUM_ROWS,
+            self.__QUOTIENT,
+            self.__REMAINDER,
+            *self.__INVERSE,
+            self.__PADDING_BIT,
+            *self.__CONTROL_CODE,
+            *self.__W_SELECTOR,
             *self.__W,
             self.__A, self.__B, self.__C, self.__D, self.__E, self.__F, self.__G, self.__H, self.__T1, self.__T2,
             *self.__BITS,
@@ -138,7 +182,7 @@ class Sha256TraceBuilder(TraceBuilder):
                 or just the next set of message blocks. Defaults to False.
         """
         if is_first_row:
-            self.__NUM_ROWS = 1
+            self.__NUM_ROWS = 0
             self.__CARRY = [1 for _ in range(8)]
 
             for i in range(8):
@@ -179,7 +223,6 @@ class Sha256TraceBuilder(TraceBuilder):
         Arguments:
             round (int) : The round index. Used in selecting the appropriate constant.
         """
-        self.__NUM_ROWS += 1
 
         # The first 3 sets of BITS store the bitwise decomposition of e,f,g
         for index in range(32):
@@ -229,11 +272,13 @@ class Sha256TraceBuilder(TraceBuilder):
             self.__E -= constants.REGISTER_LIMIT
             self.__CARRY[3] = 1
 
+        if self.__W_SELECTOR[-1] != 1:
+            for i in range(16, 0, -1):
+                self.__W_SELECTOR[i] = self.__W_SELECTOR[i-1]
+
     def __build_second_half_round(self):
         """Builds T2 and updates A,B,C,D
-        """
-        self.__NUM_ROWS += 1
-        
+        """        
         # The first 3 sets of BITS store the bitwise decomposition of a,b,c
         for index in range(32):
             self.__BITS[index] = (self.__A >> (31 - index)) & 1
@@ -276,8 +321,6 @@ class Sha256TraceBuilder(TraceBuilder):
             self.__CARRY[5] = 1
 
     def __build_message_schedule(self):
-        self.__NUM_ROWS += 1
-
         # Temporarily copy W[0] (W_t-16)
         W16 = self.__W[0]
 
@@ -334,8 +377,6 @@ class Sha256TraceBuilder(TraceBuilder):
     def __build_hash_update(self):
         """Updates the current hash blocks
         """
-        self.__NUM_ROWS += 1
-
         self.__HASH[0] += self.__A
         self.__HASH[1] += self.__B
         self.__HASH[2] += self.__C
@@ -351,17 +392,16 @@ class Sha256TraceBuilder(TraceBuilder):
         
         self.__A, self.__B, self.__C, self.__D, self.__E, self.__F, self.__G, self.__H = self.__HASH
 
-    def __build_size_attestation(self, is_initial = False):
-        self.__NUM_ROWS += 1
+        for i in range(224):
+            self.__BITS[i] = 0
+        for i in range(16):
+            self.__W[i] = 0
+            self.__W_SELECTOR[i] = 0
 
-        registers_per_set = 24
-        for set in range(8):
-            for i in range(8):
-                if is_initial and set == 0:
-                    self.__BITS[32 + i] = self.__HASH[i]
-                elif set == 0:
-                    self.__BITS[32 + i] = self.__BITS[40 + 7 * registers_per_set + i]
-                elif set != 0:
-                    self.__BITS[32  + set * registers_per_set + i] = self.__BITS[40 + (set - 1) * registers_per_set + i]
-                self.__BITS[40 + set * registers_per_set + i] = self.__BITS[32 + set * registers_per_set + i] // 2
-                self.__BITS[48 + set * registers_per_set + i] = self.__BITS[32 + set * registers_per_set + i] % 2
+        self.__W_SELECTOR[0] = 1
+        self.__W_SELECTOR[16] = 0
+
+        self.__BITWISE_OUTPUT[0] = 0
+        self.__BITWISE_OUTPUT[1] = 0
+        self.__T1 = 0
+        self.__T2 = 0

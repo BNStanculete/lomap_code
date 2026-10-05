@@ -1,7 +1,14 @@
 # Sha256 AIR Trace constants
 
-TRACE_WIDTH = 269
+TRACE_WIDTH = 277
 CYCLE_LENGTH = 177
+
+CONTROL_CODES = {
+    "FirstHalfRound": (0, 0),
+    "SecondHalfRound": (0, 1),
+    "ScheduleUpdate": (1, 0),
+    "AlignmentStep": (1, 1),
+}
 
 REGISTER_LIMIT = pow(2, 32)
 
