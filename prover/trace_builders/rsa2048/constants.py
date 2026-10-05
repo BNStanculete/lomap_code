@@ -1,6 +1,6 @@
 # RSA-2048 Trace Constants
 
-TRACE_WIDTH = 393
+TRACE_WIDTH = 402
 CYCLE_LENGTH = 256
 
 # Transitions:

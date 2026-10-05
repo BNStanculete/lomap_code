@@ -1,13 +1,18 @@
 from prover.trace_builders import TraceBuilder, Trace, next_power_of_two
-from prover.trace_builders.utils import FIELD_MODULUS
+from prover.trace_builders.utils import FIELD_MODULUS, get_modular_inverse
 from . import constants
 
 class RSA2048TraceBuilder(TraceBuilder):
+    """Note that this builder is currently missing the initial attestation that Signature < N. 
+    """
+
     def build_trace(self, in_memory):
         trace = Trace()
 
         # Build the initial row
+        self.__CONTROL_CODES = constants["AlignmentStep"]
         self.__build_row(trace, in_memory)
+        self.__update_row_counters()
 
         for idx in range(3, -1, -1):
             # We exhaust self.__E in LSB order.
@@ -23,6 +28,10 @@ class RSA2048TraceBuilder(TraceBuilder):
 
         assert self.__HASH == self.__REPRESENTATIVE[28:], f"{self.__HASH} vs {self.__REPRESENTATIVE}"
 
+        self.__CONTROL_CODES = constants["AlignmentStep"]
+        self.__build_row(trace, in_memory)
+        self.__update_row_counters()
+
         # Final padding
         if self.__hasPadding:
             self.__pad_rows(trace, in_memory)
@@ -31,7 +40,6 @@ class RSA2048TraceBuilder(TraceBuilder):
 
     def set_input(self, representative: int, public_key: list[int, int], signature: int):
         self.__reset_registers()
-        self.__NUM_ROWS = 1
         self.__REPRESENTATIVE[-1] = 1
 
         for idx in range(4):
@@ -52,8 +60,33 @@ class RSA2048TraceBuilder(TraceBuilder):
         """
         self.__hasPadding = not self.__hasPadding
 
+    def __build_initial_attestation(self):
+        """This function builds the attestation that Signature < N.
+
+        Register repurposing:
+            - 32 for N
+            - 32 for Next N
+            - 32 for Bit N
+            - 32 for Signature
+            - 32 for Next Signature
+            - 32 for Bit Signature
+            - 32 for LT
+            - 32 for GT
+            - 32 for SetLT
+        Taken from:
+            - Attestors (127)
+            - Result (64)
+            - Carry (63)
+            - Quotients(32)
+            - Bit_E
+            - Next_E
+        """
+        pass
+
     def __build_SQM_step(self, e_idx: int, trace, in_memory):
         # 1) Extract the current bit of E
+        self.__CONTROL_CODES = constants.CONTROL_CODES["ConditionalMultiplication"]
+        self.__MULTIPLICATION_BIT = 0
         self.__NEXT_E = self.__E[e_idx] // 2
         self.__BIT_E = self.__E[e_idx] % 2
         self.__E[e_idx] = self.__NEXT_E
@@ -73,9 +106,11 @@ class RSA2048TraceBuilder(TraceBuilder):
                     self.__CARRY[idx - 1] = self.__RESULT[idx] // constants.REGISTER_LIMIT
     
                 self.__RESULT[idx] %= constants.REGISTER_LIMIT
-            self.__build_step_rows(trace, in_memory)
+            self.__build_step_rows(trace, in_memory, True)
 
             # Now we reduce everything modulo N. For that, we compute the quotient using bigint
+            self.__CONTROL_CODES = constants.CONTROL_CODES["ConditionalReduction"]
+            self.__MULTIPLICATION_BIT = 1
             self.__representative *= self.__signature
             quotient = self.__representative // self.__modulus
             self.__representative %= self.__modulus
@@ -84,12 +119,12 @@ class RSA2048TraceBuilder(TraceBuilder):
             self.__CARRY = [0] * 63
             
             for idx in range(32):
-                self.__QUOTIENT[idx] = (quotient >> (1984 - 64 * idx)) & constants.REGISTER_MASK
+                self.__QUOTIENTS[idx] = (quotient >> (1984 - 64 * idx)) & constants.REGISTER_MASK
 
             # Note that this might produce negatives. For that, we use carries
             for modulus_index in range(32):
                 for quotient_index in range(32):
-                    self.__RESULT[1 + modulus_index + quotient_index] -= self.__N[modulus_index] * self.__QUOTIENT[quotient_index]
+                    self.__RESULT[1 + modulus_index + quotient_index] -= self.__N[modulus_index] * self.__QUOTIENTS[quotient_index]
 
             for idx in range(63, -1, -1):
                 if idx != 63:
@@ -108,13 +143,24 @@ class RSA2048TraceBuilder(TraceBuilder):
             # We also copy the upper 32-limbs into representative
             for idx in range(32):
                 self.__REPRESENTATIVE[idx] = self.__RESULT[32 + idx]
-            self.__build_step_rows(trace, in_memory)
+            self.__build_step_rows(trace, in_memory, True)
         else:
-            for _ in range(128):
-                self.__NUM_ROWS += 1
-                self.__build_row(trace, in_memory)
+            self.__MULTIPLICATION_BIT = 0
+            self.__CONTROL_CODES = constants.CONTROL_CODES["ConditionalMultiplication"]
+            for _ in range(64):
+                self.__build_row(trace, in_memory, True)
+                self.__update_row_counters()
+
+            self.__MULTIPLICATION_BIT = 1
+            self.__CONTROL_CODES = constants.CONTROL_CODES["ConditionalReduction"]
+            for _ in range(64):
+                self.__build_row(trace, in_memory, True)
+                self.__update_row_counters()
+
 
         # Now we square the SIGNATURE
+        self.__MULTIPLICATION_BIT = 0
+        self.__CONTROL_CODES = constants.CONTROL_CODES["Multiplication"]
         self.__CARRY = [0] * 63
         self.__RESULT = [0] * 64
 
@@ -135,6 +181,8 @@ class RSA2048TraceBuilder(TraceBuilder):
         self.__build_step_rows(trace, in_memory)
 
         # Now we reduce everything modulo N. For that, we compute the quotient using bigint
+        self.__CONTROL_CODES = constants.CONTROL_CODES["Reduction"]
+        self.__MULTIPLICATION_BIT = 1
         self.__signature *= self.__signature
         quotient = self.__signature // self.__modulus
         self.__signature %= self.__modulus
@@ -143,12 +191,12 @@ class RSA2048TraceBuilder(TraceBuilder):
         self.__CARRY = [0] * 63
         
         for idx in range(32):
-            self.__QUOTIENT[idx] = (quotient >> (1984 - 64 * idx)) & constants.REGISTER_MASK
+            self.__QUOTIENTS[idx] = (quotient >> (1984 - 64 * idx)) & constants.REGISTER_MASK
 
         # Note that this might produce negatives. For that, we use carries
         for modulus_index in range(32):
             for quotient_index in range(32):
-                self.__RESULT[1 + modulus_index + quotient_index] -= self.__N[modulus_index] * self.__QUOTIENT[quotient_index]
+                self.__RESULT[1 + modulus_index + quotient_index] -= self.__N[modulus_index] * self.__QUOTIENTS[quotient_index]
 
         for idx in range(63, -1, -1):
             if idx != 63:
@@ -173,8 +221,7 @@ class RSA2048TraceBuilder(TraceBuilder):
         self.__RESULT = [0] * 64
         self.__CARRY = [0] * 63
 
-
-    def __build_step_rows(self, trace, in_memory):
+    def __build_step_rows(self, trace, in_memory, is_from_conditional: bool = False):
         # Now we set the initial values of the ATTESTORS. their job is to attest that each number is 64-bit
         for idx in range(64):
             self.__ATTESTORS[idx] = self.__RESULT[idx] // 2
@@ -183,17 +230,20 @@ class RSA2048TraceBuilder(TraceBuilder):
                 self.__ATTESTORS[64 + idx] = self.__CARRY[idx] // 2
 
         # We build the multiplication row
-        self.__NUM_ROWS += 1
         self.__build_row(trace, in_memory)
+        self.__update_row_counters()
 
         # Next 63 rows just update the ATTESTORS. If the registers are indeed 64-bit, the final ATTESTOR must be 0
-        for _ in range(63):
-            self.__NUM_ROWS += 1
-            
+        for _ in range(63):            
             for idx in range(127):
                 self.__ATTESTORS[idx] //= 2
-            
+
+            if is_from_conditional:
+                self.__CONTROL_CODES = constants.CONTROL_CODES["ConditionalAssertions"]
+            else:
+                self.__CONTROL_CODES = constants.CONTROL_CODES["Assertions"]
             self.__build_row(trace, in_memory)
+            self.__update_row_counters()
 
 
     def __can_terminate_early(self, current_index):
@@ -203,10 +253,35 @@ class RSA2048TraceBuilder(TraceBuilder):
 
     def __pad_rows(self, trace, in_memory):
         target_rows = next_power_of_two(self.__NUM_ROWS)
+        self.__PADDING_BIT = 1
 
         for _ in range(self.__NUM_ROWS, target_rows):
-            self.__NUM_ROWS += 1
             self.__build_row(trace, in_memory)
+            self.__update_row_counters()
+
+    def __update_row_counters(self):
+        """Increments the row counter and updates the registers that depend on it.
+        """
+        self.__NUM_ROWS += 1
+        self.__QUOTIENT = self.__NUM_ROWS // 64
+        self.__REMAINDER = self.__NUM_ROWS % 64
+        self.__set_inverse()
+
+    def __set_inverse(self):
+        """Computes the modular inverse of 176 - REMAINDER, and stores it in 128-bit limbs.
+        """
+        if self.__REMAINDER != 63:
+            inverse = get_modular_inverse(63 - self.__REMAINDER)
+        else:
+            inverse = 0
+
+        self.__INVERSE[0] = ((inverse >> 128) & (pow(2, 128) - 1))
+        self.__INVERSE[1] = (inverse & (pow(2, 128) - 1))
+
+        if self.__REMAINDER != 63:
+            assert (((self.__INVERSE[0] << 128) | self.__INVERSE[1]) * (63 - self.__REMAINDER)) % FIELD_MODULUS == 1, f"Wrong inverse computation for {63 - self.__REMAINDER}"
+        else:
+            assert self.__INVERSE == [0, 0], f"Inverse not nullified when REMAINDER = 63"
 
     def __init__(self, trace_file: str):
         super().__init__()
@@ -216,6 +291,11 @@ class RSA2048TraceBuilder(TraceBuilder):
 
     def __reset_registers(self):
         self.__NUM_ROWS = 0
+        self.__QUOTIENT = 0
+        self.__REMAINDER = 0
+        self.__INVERSE = [0, 0]
+        self.__PADDING_BIT = 0
+        self.__MULTIPLICATION_BIT = 0
         self.__CONTROL_CODES = [0] * 3
         self.__HASH = [0] * 4
         self.__E = [0] * 4
@@ -226,8 +306,10 @@ class RSA2048TraceBuilder(TraceBuilder):
         self.__REPRESENTATIVE = [0] * 32
         self.__RESULT = [0] * 64
         self.__CARRY = [0] * 63
-        self.__QUOTIENT = [0] * 32
+        self.__QUOTIENTS = [0] * 32
         self.__ATTESTORS = [0] * 127
+
+        self.__set_inverse()
 
     def __build_registers(self) -> list[int]:
         """Builds the registers into a single trace row.
@@ -238,6 +320,11 @@ class RSA2048TraceBuilder(TraceBuilder):
 
         return [
             self.__NUM_ROWS,
+            self.__QUOTIENT,
+            self.__REMAINDER,
+            *self.__INVERSE,
+            self.__PADDING_BIT,
+            self.__MULTIPLICATION_BIT,
             *self.__CONTROL_CODES,
             *self.__HASH,
             *self.__N,
@@ -248,7 +335,7 @@ class RSA2048TraceBuilder(TraceBuilder):
             *self.__REPRESENTATIVE,
             *self.__RESULT,
             *self.__CARRY,
-            *self.__QUOTIENT,
+            *self.__QUOTIENTS,
             *self.__ATTESTORS
         ]
     
