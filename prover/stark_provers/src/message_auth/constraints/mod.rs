@@ -8,6 +8,8 @@ use crate::utils::constraints::ConstraintSpecification;
 mod padding;
 mod general;
 mod sha256;
+mod rsa2048;
+mod poseidon;
 
 use padding::padding_without_counter_constraint_specification;
 use general::general_constraint_specification;
@@ -16,6 +18,17 @@ use sha256::{sha256_general_constraints_specification,
              sha256_second_half_round_constraints_specification,
              sha256_schedule_word_computation_constraints_specification,
              sha256_hash_computation_constraints_specification};
+
+use rsa2048::{rsa2048_general_constraints_specification,
+              rsa2048_attestation_constraints_specification,
+              rsa2048_padding_constraints_specification,
+              rsa2048_multiplication_constraints_specification,
+              rsa2048_conditional_multiplication_constraints_specification};
+
+use poseidon::{poseidon_general_constraints_specification,
+               poseidon_round_constraints_specification,
+               poseidon_output_constraints_specification,
+               poseidon_input_constraints_specification};
 
 pub fn get_constraints<E: FieldElement + From<BaseElement>>(trace_length: usize) -> Vec<ConstraintSpecification<E>> {
     let mut constraints = Vec::new();
@@ -32,6 +45,17 @@ pub fn get_constraints<E: FieldElement + From<BaseElement>>(trace_length: usize)
     constraints.push(sha256_hash_computation_constraints_specification(trace_length));
 
     // Verification constraints
+    constraints.push(rsa2048_general_constraints_specification(trace_length));
+    constraints.push(rsa2048_attestation_constraints_specification(trace_length));
+    constraints.push(rsa2048_padding_constraints_specification(trace_length));
+    constraints.push(rsa2048_multiplication_constraints_specification(trace_length));
+    // constraints.push(rsa2048_conditional_multiplication_constraints_specification(trace_length));
+
+    // Poseidon constraints
+    constraints.push(poseidon_general_constraints_specification(trace_length));
+    constraints.push(poseidon_round_constraints_specification(trace_length));
+    constraints.push(poseidon_output_constraints_specification(trace_length));
+    constraints.push(poseidon_input_constraints_specification(trace_length));
 
     constraints
 }

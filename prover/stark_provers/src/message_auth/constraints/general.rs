@@ -17,7 +17,7 @@ define_constraint!(
         *index += 1;
 
         // PUBLIC_KEY is preserved
-        for i in 0..36 {
+        for i in 4..36 {
             result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::PUB_KEY_OFFSET, i)],
                                                           next[get_register_column(constants::PUB_KEY_OFFSET, i)]), E::ONE);
             *index += 1;
@@ -27,12 +27,6 @@ define_constraint!(
         result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::SIGNATURE_ALGO_OFFSET, 0)],
                                                       next[get_register_column(constants::SIGNATURE_ALGO_OFFSET, 0)]), E::ONE);
 
-        // SIGNATURE is preserved
-        for i in 0..32 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::SIGNATURE_OFFSET, i)],
-                                                          next[get_register_column(constants::SIGNATURE_OFFSET, i)]), E::ONE);
-        }
-
         // OPBITS are bit values
         for i in 0..5 {
             result.aggregate_constraint(*index, is_binary(current[get_register_column(constants::OPCODE_OFFSET, i)]), E::ONE);
@@ -40,7 +34,7 @@ define_constraint!(
         }
     },
     {
-        let mut degrees = vec![[1].to_vec(); 70];
+        let mut degrees = vec![[1].to_vec(); 66];
         degrees.extend(vec![[2].to_vec(); 5]);
         degrees
     }

@@ -56,6 +56,8 @@ class AuthenticationTraceBuilder(TraceBuilder):
         return trace
 
     def __pad_rows(self, trace, in_memory):
+        # BUG: SET OPBITS
+
         self.__NUM_ROWS += 1
         target_rows = next_power_of_two(self.__NUM_ROWS)
 

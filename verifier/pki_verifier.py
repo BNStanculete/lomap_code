@@ -167,14 +167,29 @@ if __name__ == '__main__':
                 metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][1], cache)
 
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0], (elapsed - now) / 1000000000)
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0], memory_in_KB * 1024)
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0], bw)
-                metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = \
-                    min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0], cache)
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = (elapsed - now) / 1000000000
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CPU"][0], (elapsed - now) / 1000000000)
+
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = memory_in_KB * 1024
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["RAM"][0], memory_in_KB * 1024)
+
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = bw
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["BW"][0], bw)
+
+                if metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = cache
+                else:
+                    metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["Authentication"]["CACHE"][0], cache)
 
                 print(f"[+] Perf counter: {(elapsed - now) / 1000000000:.4f} seconds")
                 print(f"[+] Peak memory: {memory_in_KB * 1024} bytes")
@@ -213,12 +228,23 @@ if __name__ == '__main__':
                 metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1] = \
                     max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][1], bw)
 
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = \
-                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0], (elapsed - now) / 1000000000)
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = \
-                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0], memory_in_KB * 1024)
-                metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = \
-                    max(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0], bw)
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = (elapsed - now) / 1000000000
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["CPU"][0], (elapsed - now) / 1000000000)
+
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = memory_in_KB * 1024
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["RAM"][0], memory_in_KB * 1024)
+
+                if metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] == 0:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = bw
+                else:
+                    metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0] = \
+                        min(metrics[test_data[test]["TestSuite"]]["CRLUpdate"]["BW"][0], bw)
 
             elif message.startswith("MessageAuthentication"):
                 print("[+] Verifying message signature...")

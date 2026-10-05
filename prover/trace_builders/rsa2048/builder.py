@@ -56,6 +56,7 @@ class RSA2048TraceBuilder(TraceBuilder):
         # 1) Extract the current bit of E
         self.__NEXT_E = self.__E[e_idx] // 2
         self.__BIT_E = self.__E[e_idx] % 2
+        self.__E[e_idx] = self.__NEXT_E
 
         # 2) If the current bit is 1, multiply SIGNATURE with REPRESENTATIVE, otherwise just copy the previous row
         if self.__BIT_E == 1:
@@ -107,12 +108,9 @@ class RSA2048TraceBuilder(TraceBuilder):
             # We also copy the upper 32-limbs into representative
             for idx in range(32):
                 self.__REPRESENTATIVE[idx] = self.__RESULT[32 + idx]
-            self.__E[e_idx] = self.__NEXT_E
-
             self.__build_step_rows(trace, in_memory)
         else:
-            self.__E[e_idx] = self.__NEXT_E
-            for _ in range(256):
+            for _ in range(128):
                 self.__NUM_ROWS += 1
                 self.__build_row(trace, in_memory)
 

@@ -36,6 +36,11 @@ pub const SIGNATURE_CARRY_OFFSET: usize = 178;
 pub const QUOTIENT_OFFSET: usize = 241;
 pub const SIGNATURE_ATTESTORS_OFFSET: usize = 273;
 
+// Poseidon offsets
+pub const POSEIDON_START_OFFSET: usize = 80;
+pub const POSEIDON_SELECTOR_OFFSET: usize = 242;
+pub const POSEIDON_HASH_OFFSET: usize = 400;
+
 // SHA-256 CONSTANTS
 // ================================================================================================
 
@@ -121,6 +126,7 @@ pub const ROUND_CONSTANTS : [BaseElement; 64] = [
 // ================================================================================================
 pub const U32_REGISTER_LIMIT: BaseElement = BaseElement::new([1 << 32 as u64, 0, 0, 0]);
 pub const U64_REGISTER_LIMIT: BaseElement = BaseElement::new([0, 1, 0, 0]);
+pub const U128_REGISTER_LIMIT: BaseElement = BaseElement::new([0, 0, 1, 0]);
 pub const POWERS_OF_TWO : [BaseElement; 32] = build_powers_of_two_elements();
 const fn build_powers_of_two_elements() -> [BaseElement; 32] {
     let mut array = [BaseElement::ONE; 32];

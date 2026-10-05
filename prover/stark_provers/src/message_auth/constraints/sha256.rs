@@ -24,12 +24,34 @@ define_constraint!(
 
         // The carries are binary values
         for i in 0..8 {
-            result.aggregate_constraint(*index, is_binary(next[get_register_column(constants::CARRY_OFFSET, i)]), flag);
+            result.aggregate_constraint(*index, is_binary(current[get_register_column(constants::CARRY_OFFSET, i)]), flag);
+            *index += 1;
+        }
+
+        // The public key is preserved
+        for i in 0..4 {
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::PUB_KEY_OFFSET, i)],
+                                                          next[get_register_column(constants::PUB_KEY_OFFSET, i)]),
+                                        flag);
+            *index += 1;
+        }
+
+        // SIGNATURE is preserved
+        for i in 0..32 {
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::SIGNATURE_OFFSET, i)],
+                                                          next[get_register_column(constants::SIGNATURE_OFFSET, i)]), flag);
+            *index += 1;
+        }
+
+        // Poseidon hash is preserved
+        for i in 0..2 {
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::POSEIDON_HASH_OFFSET, i)],
+                                                          next[get_register_column(constants::POSEIDON_HASH_OFFSET, i)]), flag);
             *index += 1;
         }
     },
     {
-        let mut degrees = vec![[4].to_vec(); 232];
+        let mut degrees = vec![[4].to_vec(); 270];
         degrees
     }
 );
@@ -184,6 +206,11 @@ define_constraint!(
                                         flag);
             *index += 1;
         }
+        for i in 0..4 {
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::HASH_OFFSET, i)],
+                                                          next[get_register_column(constants::HASH_OFFSET, i)]), flag);
+            *index += 1;
+        }
 
         // The selectors are preserved
         for i in 0..16 {
@@ -230,7 +257,7 @@ define_constraint!(
 
         degrees.extend(vec_array);
         degrees.extend(vec![[6, trace_length].to_vec(); 2]);
-        degrees.extend(vec![[6, trace_length].to_vec(); 48]);
+        degrees.extend(vec![[6, trace_length].to_vec(); 52]);
         degrees.extend(vec![[6, trace_length].to_vec(); 16]);
         degrees.extend(vec![[6, trace_length].to_vec(); 36]);
         degrees
@@ -384,6 +411,11 @@ define_constraint!(
                                         flag);
             *index += 1;
         }
+        for i in 0..4 {
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::HASH_OFFSET, i)],
+                                                          next[get_register_column(constants::HASH_OFFSET, i)]), flag);
+            *index += 1;
+        }
     },
     {
         let mut degrees = vec![[6, trace_length].to_vec(); 3];
@@ -395,7 +427,7 @@ define_constraint!(
         }
 
         degrees.extend(vec_array);
-        degrees.extend(vec![[6, trace_length].to_vec(); 40]);
+        degrees.extend(vec![[6, trace_length].to_vec(); 44]);
         degrees
     }
 );
@@ -549,11 +581,17 @@ define_constraint!(
                                         flag);
             *index += 1;
         }
+        for i in 0..4 {
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::HASH_OFFSET, i)],
+                                                          next[get_register_column(constants::HASH_OFFSET, i)]), flag);
+            *index += 1;
+        }
+
     },
     {
         let mut degrees = vec![[6, trace_length].to_vec(); 85];
         degrees.extend(vec![[6, trace_length].to_vec(); 23]);
-        degrees.extend(vec![[6, trace_length].to_vec(); 16]);
+        degrees.extend(vec![[6, trace_length].to_vec(); 20]);
         degrees
     }
 );

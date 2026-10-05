@@ -5,6 +5,9 @@ REGISTER_LIMIT      = pow(2, 64)
 
 OPERATION_CODES = {
     "PaddingWithoutCounter":        (0, 0, 0, 0, 1),
+    "PoseidonInput":                (0, 0, 0, 1, 0),
+    "PoseidonOutput":               (0, 0, 0, 1, 1),
+    "PoseidonRound":                (0, 0, 1, 0, 0),
 
     "HeaderSerialization":          (0, 1, 0, 0, 0),
     "FieldSerialization":           (0, 1, 0, 0, 1),
@@ -23,6 +26,9 @@ OPERATION_CODES = {
     "SignatureVerifMulti":          (1, 1, 0, 0, 1),
     "SignatureVerifRed":            (1, 1, 0, 1, 0),
     "SignatureVerifAttest":         (1, 1, 0, 1, 1),
+    "SignatureVerifPadding":        (1, 1, 1, 0, 0),
+    "SignatureVerifCondMulti":      (1, 1, 1, 0, 1),
+    "SignatureVerifCondRed":        (1, 1, 1, 1, 0),
 }
 
 FIELD_MODULUS = pow(2, 128) - 45 * pow(2, 40) + 1

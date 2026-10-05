@@ -34,9 +34,9 @@ pub fn not<E: FieldElement>(a: E) -> E {
     E::ONE - a
 }
 
-/// Returns zero when b = 2 * a or b + 1 = 2 * a
+/// Returns zero when a = 2 * b or a = 2 * b + 1
 pub fn is_division_by_two<E: FieldElement>(a: E, b: E) -> E {
-    (a - (E::ONE + E::ONE) * b) * ((a - (E::ONE + E::ONE) * b) - E::ONE)
+    (b * E::from(2u32) - a) * (E::ONE + b * E::from(2u32) - a)
 }
 
 /// Returns zero when a == Sum_i b[i] * c[i]

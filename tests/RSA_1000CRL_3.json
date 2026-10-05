@@ -1,0 +1,24 @@
+{
+    "Nr.Tests": 10,
+    "PKIConfiguration": {
+        "ChainLength": [
+            3,
+            3
+        ],
+        "RevokedCertificates": [
+            1000,
+            1000
+        ],
+        "AvailableSignatures": [
+            "RSA-2048"
+        ]
+    },
+    "MessageFlow": [
+        {
+            "Type": "CRLUpdate"
+        },
+        {
+            "Type": "Authentication"
+        }
+    ]
+}

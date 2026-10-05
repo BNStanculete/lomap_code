@@ -1,8 +1,10 @@
 from prover.trace_builders import TraceBuilder, Trace, RegisterView, next_power_of_two
 from prover.trace_builders.rsa2048 import RSA2048TraceBuilder
 from prover.trace_builders.sha256 import Sha256TraceBuilder
+from prover.trace_builders.poseidon import PoseidonTraceBuilder
 from prover.trace_builders.sha256.constants import TRACE_WIDTH as SHA_TRACE_WIDTH
 from prover.trace_builders.sha256.constants import ROUND_CONSTANTS
+from prover.trace_builders.utils import FIELD_MODULUS
 
 from . import constants
 
@@ -82,8 +84,84 @@ class MessageTraceBuilder(TraceBuilder):
 
         for idx in range(SHA_TRACE_WIDTH - 1):
             HASH_REGISTERS[idx] = 0
+
+        # For Poseidon
+        HASH_REGISTERS[162] = 1
+        HASH_REGISTERS[163] = 1
+
         self.__build_row(trace, in_memory)
         self.__NUM_ROWS += 1
+
+        # Now we compute the Poseidon hash of the public key
+        poseidon_blocks = []
+        for i in range(36):
+            poseidon_blocks.append(self.__PUBLIC_KEY[i])
+        self.__poseidon.set_blocks(poseidon_blocks)
+        poseidon_trace = self.__poseidon.build_trace(True)
+        poseidon_trace = poseidon_trace.as_list()
+
+        # Now we extract the poseidon trace
+        # We compress 26 Poseidon rounds into 1 row
+        POSEIDON_REGISTERS = RegisterView(
+            (self.__REMAINING, 0, 312)
+        )
+
+        row_index = 0
+        pub_key_index = 1
+        while row_index < len(poseidon_trace):
+            if row_index % 91 == 0:
+                self.__OPBITS = constants.OPERATION_CODES["PoseidonInput"]
+            elif row_index % 91 == 78:
+                self.__OPBITS = constants.OPERATION_CODES["PoseidonOutput"]
+            else:
+                self.__OPBITS = constants.OPERATION_CODES["PoseidonRound"]
+
+            for set in range(26):
+                row_input = poseidon_trace[row_index][2:5]
+                row_constants = poseidon_trace[row_index][5:8]
+                row_output = poseidon_trace[row_index][8:]
+
+                # Now we decompose the input into 2 128-bit limbs
+                for i in range(3):
+                    POSEIDON_REGISTERS[set * 12 + 2 * i] = row_input[i] >> 128
+                    POSEIDON_REGISTERS[set * 12 + 2 * i + 1] = row_input[i] & ((1 << 128) - 1)
+
+                # Now we decompose the constants
+                for i in range(3):
+                    POSEIDON_REGISTERS[set * 12 + 2 * i + 6] = row_constants[i] >> 128
+                    POSEIDON_REGISTERS[set * 12 + 2 * i + 7] = row_constants[i] & ((1 << 128) - 1)
+
+                # After we process the last row of a hash we always break
+                if row_index % 91 == 90:
+                    # Here we also write the output...
+                    for i in range(3):
+                        POSEIDON_REGISTERS[set * 12 + 2 * i + 12] = row_output[i] >> 128
+                        POSEIDON_REGISTERS[set * 12 + 2 * i + 13] = row_output[i] & ((1 << 128) - 1)
+
+                    for i in range(set * 12 + 18, 312):
+                        POSEIDON_REGISTERS[i] = 0
+
+                    assert 312 - 18 - set * 12 > 36, "Not enough bits for PUB_KEY selector"
+
+                    # Now we set the bits.
+                    if pub_key_index < 18:
+                        POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index] = 1
+                        POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index + 1] = 1
+                        pub_key_index += 1
+
+                    # And we copy the digest
+                    self.__POSEIDON_HASH[0] = row_output[0] >> 128
+                    self.__POSEIDON_HASH[1] = row_output[0] & ((1 << 128) - 1)
+
+                    self.__build_row(trace, in_memory)
+                    self.__NUM_ROWS += 1
+                    row_index += 1
+                    break
+
+                row_index += 1
+            else:
+                self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
         # Now we perform a signature verification
         signature, representative, pub_key = self.__get_signature_params()
@@ -152,12 +230,26 @@ class MessageTraceBuilder(TraceBuilder):
         for row in signature_trace.as_list():
             if row[0] == 1:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifInput"]
-            elif row[0] % 256 in [2, 130]:
+            elif row[0] % 256 == 2:
+                self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondMulti"]
+            elif row[0] % 256 == 130:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifMulti"]
-            elif row[0] % 256 in [66, 194]:
+            elif row[0] % 256 == 66:
+                self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondRed"]
+            elif row[0] % 256 == 194:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifRed"]
+            elif row[0] % 256 < 130 and row[0] % 256 > 2 and row[74] == 0:
+                self.__OPBITS = constants.OPERATION_CODES["SignatureVerifPadding"]
             else:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifAttest"]
+
+            self.__PUBLIC_KEY[0] = row[37]
+            self.__PUBLIC_KEY[1] = row[38]
+            self.__PUBLIC_KEY[2] = row[39]
+            self.__PUBLIC_KEY[3] = row[40]
+
+            for i in range(32):
+                self.__SIGNATURE[i] = row[41 + i]
 
             for col in range(73, len(row)):
                 SIGNATURE_REGISTERS[col - 73] = row[col]
@@ -196,6 +288,7 @@ class MessageTraceBuilder(TraceBuilder):
         self.__SIGNATURE = [0] * 32
         self.__HASH = [0] * 4
         self.__HASH_CONSTANT = 0
+        self.__POSEIDON_HASH = [0] * 2
 
         # Additional registers according to the RSA-2048 builder
         self.__REMAINING = [0] * 320
@@ -209,7 +302,8 @@ class MessageTraceBuilder(TraceBuilder):
             *self.__HASH,
             self.__HASH_CONSTANT,
             self.__SIGNATURE_ALGO,
-            *self.__REMAINING
+            *self.__REMAINING,
+            *self.__POSEIDON_HASH
         ]
 
     def __init__(self, trace_file: str):
@@ -226,6 +320,9 @@ class MessageTraceBuilder(TraceBuilder):
 
         self.__signature_verifier = RSA2048TraceBuilder(trace_file)
         self.__signature_verifier.togglePadding()
+
+        self.__poseidon = PoseidonTraceBuilder(trace_file)
+        self.__poseidon.togglePadding()
 
     def __build_row(self, trace: Trace, in_memory: bool):
         """Saves the next row of the trace.

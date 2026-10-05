@@ -30,7 +30,7 @@ mod tests;
 // ================================================================================================
 
 pub const CYCLE_LENGTH: usize = 256;
-pub const TRACE_WIDTH: usize = 400;
+pub const TRACE_WIDTH: usize = 402;
 
 // MessageAuthentication Proof
 // ================================================================================================
