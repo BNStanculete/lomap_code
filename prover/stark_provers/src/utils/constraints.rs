@@ -77,7 +77,7 @@ impl<E : FieldElement + From<BaseElement>> ConstraintSpecification<E> {
 macro_rules! define_constraint {
     (
         $name: ident,
-        |$index:ident, $result:ident, $current:ident, $next:ident, $periodic_values: ident, $trace_length: ident | $evaluator_body: block,
+        |$index:ident, $result:ident, $current:ident, $next:ident, $periodic_values: ident, $flag: ident, $base_offset: ident, $trace_length: ident | $evaluator_body: block,
         $degrees: expr
     ) => {
         fn $name<E: FieldElement + From<BaseElement>>(
@@ -91,7 +91,7 @@ macro_rules! define_constraint {
         }
 
         paste::paste! {
-            pub fn [<$name _specification>]<E: FieldElement + From<BaseElement>>($trace_length: usize) -> ConstraintSpecification<E> {
+            pub fn [<$name _specification>]<E: FieldElement + From<BaseElement>>($flag: E, $base_offset: usize, $trace_length: usize) -> ConstraintSpecification<E> {
                 ConstraintSpecification::new($name::<E>, $degrees)
             }
         }
