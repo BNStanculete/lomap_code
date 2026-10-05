@@ -1,15 +1,20 @@
 from prover.trace_builders import TraceBuilder, Trace, next_power_of_two
-from prover.trace_builders.utils import FIELD_MODULUS, get_modular_inverse
+from prover.trace_builders.utils import FIELD_MODULUS, get_modular_inverse, RegisterView
 from . import constants
 
 class RSA2048TraceBuilder(TraceBuilder):
-    """Note that this builder is currently missing the initial attestation that Signature < N. 
-    """
-
     def build_trace(self, in_memory):
         trace = Trace()
 
         # Build the initial row
+        self.__CONTROL_CODES = constants["AlignmentStep"]
+        self.__build_row(trace, in_memory)
+        self.__update_row_counters()
+
+        self.__CONTROL_CODES = constants["InitialAssertion"]
+        self.__MULTIPLICATION_BIT = 1
+        self.__build_initial_attestation(trace, in_memory)
+
         self.__CONTROL_CODES = constants["AlignmentStep"]
         self.__build_row(trace, in_memory)
         self.__update_row_counters()
@@ -60,14 +65,12 @@ class RSA2048TraceBuilder(TraceBuilder):
         """
         self.__hasPadding = not self.__hasPadding
 
-    def __build_initial_attestation(self):
+    def __build_initial_attestation(self, trace, in_memory):
         """This function builds the attestation that Signature < N.
 
         Register repurposing:
-            - 32 for N
             - 32 for Next N
             - 32 for Bit N
-            - 32 for Signature
             - 32 for Next Signature
             - 32 for Bit Signature
             - 32 for LT
@@ -77,11 +80,55 @@ class RSA2048TraceBuilder(TraceBuilder):
             - Attestors (127)
             - Result (64)
             - Carry (63)
-            - Quotients(32)
-            - Bit_E
-            - Next_E
         """
-        pass
+        MODULUS_REGISTERS = RegisterView(
+            (self.__RESULT, 0, 64),
+        )
+
+        SIGNATURE_REGISTERS = RegisterView(
+            (self.__CARRY, 0, 63),
+            (self.__QUOTIENTS, 0, 1),
+        )
+
+        COMPARISON_REGISTERS = RegisterView(
+            (self.__QUOTIENT, 1, 31)
+            (self.__ATTESTORS, 0, 65)
+        )
+
+        # Initialize the registers
+        for i in range(32):
+            MODULUS_REGISTERS[i] = self.__N[i]
+            SIGNATURE_REGISTERS[i] = self.__SIGNATURE[i]
+            COMPARISON_REGISTERS[64+i] = 1
+
+        for _ in range(64):
+            for i in range(32):
+                MODULUS_REGISTERS[32+i] = MODULUS_REGISTERS[i] % 2
+                SIGNATURE_REGISTERS[32+i] = SIGNATURE_REGISTERS[i] % 2
+
+                MODULUS_REGISTERS[i] //= 2
+                SIGNATURE_REGISTERS[i] //= 2
+
+                if SIGNATURE_REGISTERS[32+i] < MODULUS_REGISTERS[32+i]:
+                    COMPARISON_REGISTERS[i] = 1
+                else:
+                    COMPARISON_REGISTERS[i] = 0
+
+                if SIGNATURE_REGISTERS[32+i] > MODULUS_REGISTERS[32+i]:
+                    COMPARISON_REGISTERS[32+i] = 1
+                else:
+                    COMPARISON_REGISTERS[32+i] = 0
+
+                if COMPARISON_REGISTERS[32+i] == 1:
+                    COMPARISON_REGISTERS[64+i] = 0
+                elif COMPARISON_REGISTERS[i] == 1:
+                    COMPARISON_REGISTERS[64+i] = 1
+            for i in range(1, 32):
+                if COMPARISON_REGISTERS[63+i] == 0:
+                    COMPARISON_REGISTERS[64+i] = 0
+
+            self.__build_row(trace, in_memory)
+            self.__update_row_counters()
 
     def __build_SQM_step(self, e_idx: int, trace, in_memory):
         # 1) Extract the current bit of E
@@ -301,9 +348,9 @@ class RSA2048TraceBuilder(TraceBuilder):
         self.__E = [0] * 4
         self.__N = [0] * 32
         self.__SIGNATURE = [0] * 32
+        self.__REPRESENTATIVE = [0] * 32
         self.__NEXT_E = 0
         self.__BIT_E = 0
-        self.__REPRESENTATIVE = [0] * 32
         self.__RESULT = [0] * 64
         self.__CARRY = [0] * 63
         self.__QUOTIENTS = [0] * 32
@@ -330,9 +377,9 @@ class RSA2048TraceBuilder(TraceBuilder):
             *self.__N,
             *self.__E,
             *self.__SIGNATURE,
+            *self.__REPRESENTATIVE,
             self.__NEXT_E,
             self.__BIT_E,
-            *self.__REPRESENTATIVE,
             *self.__RESULT,
             *self.__CARRY,
             *self.__QUOTIENTS,

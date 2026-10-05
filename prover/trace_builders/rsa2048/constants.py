@@ -5,7 +5,8 @@ CYCLE_LENGTH = 256
 
 # Transitions:
 #   - Alignment     -> InitialAssertion
-#   - IA            -> ConditionalMultiplication
+#   - IA            -> Alignment
+#   - Alignment + M -> ConditionalMultiplication
 #   - CM            -> ConditionalAssertion
 #   - CA + 64       -> CR
 #   - CR            -> CA   
