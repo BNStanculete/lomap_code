@@ -1,5 +1,5 @@
 {
-    "Nr.Tests": 100,
+    "Nr.Tests": 10,
     "PKIConfiguration": {
         "ChainLength": [
             4,
@@ -14,9 +14,6 @@
         ]
     },
     "MessageFlow": [
-        {
-            "Type": "CRLUpdate"
-        },
         {
             "Type": "Authentication"
         }

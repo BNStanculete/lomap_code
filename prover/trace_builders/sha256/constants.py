@@ -1,6 +1,6 @@
 # Sha256 AIR Trace constants
 
-TRACE_WIDTH = 269
+TRACE_WIDTH = 285
 CYCLE_LENGTH = 177
 
 REGISTER_LIMIT = pow(2, 32)

@@ -35,11 +35,8 @@ class MessageTraceBuilder(TraceBuilder):
 
         # 1) Perform a SHA-256 Hashing
         HASH_REGISTERS = RegisterView(
-            (self.__REMAINING, 0, 268)
+            (self.__REMAINING, 0, 285)
         )
-
-        SELECTORS = [0] * 16
-        SELECTORS[0] = 1
 
         self.__hasher.from_message(self.__input_data["Message"].encode('utf-8'))
         hash_trace = self.__hasher.build_trace(True)
@@ -48,27 +45,20 @@ class MessageTraceBuilder(TraceBuilder):
         r_index = 0
         for row in hash_trace.as_list():
             r_index %= 64
-            relative_row = (row[0] - 1) % 178
+            relative_row = row[0] % 178
             
             self.__HASH_CONSTANT = 0
             for col in range(1, len(row)):
                 HASH_REGISTERS[col - 1] = row[col]
-            for i in range(16):
-                self.__REMAINING[268 + i] = SELECTORS[i]
 
             if relative_row == 0:
                 self.__OPBITS = constants.OPERATION_CODES["HashInputRow"]
             elif (relative_row < 33 and (relative_row) % 2 == 1) or (relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 1):
                 self.__OPBITS = constants.OPERATION_CODES["HashFirstHalfRound"]
                 self.__HASH_CONSTANT = ROUND_CONSTANTS[r_index]
-
-                if SELECTORS[15] != 1:
-                    SELECTORS[r_index] = 0
-                    SELECTORS[r_index + 1] = 1
-                r_index += 1
-
             elif (relative_row < 33 and (relative_row) % 2 == 0) or (relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 2):
                 self.__OPBITS = constants.OPERATION_CODES["HashSecondHalfRound"]
+                r_index += 1
             elif relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 0:
                 self.__OPBITS = constants.OPERATION_CODES["HashScheduleUpdate"]
             elif relative_row == 177:
@@ -228,17 +218,17 @@ class MessageTraceBuilder(TraceBuilder):
         )
 
         for row in signature_trace.as_list():
-            if row[0] == 1:
+            if row[0] == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifInput"]
-            elif row[0] % 256 == 2:
+            elif row[0] % 256 == 1:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondMulti"]
-            elif row[0] % 256 == 130:
+            elif row[0] % 256 == 129:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifMulti"]
-            elif row[0] % 256 == 66:
+            elif row[0] % 256 == 65:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondRed"]
-            elif row[0] % 256 == 194:
+            elif row[0] % 256 == 193:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifRed"]
-            elif row[0] % 256 < 130 and row[0] % 256 > 2 and row[74] == 0:
+            elif row[0] % 256 < 129 and row[0] % 256 > 1 and row[74] == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifPadding"]
             else:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifAttest"]

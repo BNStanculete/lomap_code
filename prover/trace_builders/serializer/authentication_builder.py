@@ -1,16 +1,6 @@
-from prover.trace_builders import TraceBuilder, Trace, RegisterView, next_power_of_two, get_modular_inverse
+from prover.trace_builders import TraceBuilder, Trace, next_power_of_two
 from prover.trace_builders.serializer import CrlTraceBuilder, CertificateTraceBuilder
-from prover.trace_builders.sha256.constants import TRACE_WIDTH as SHA_TRACE_WIDTH
-from prover.trace_builders.sha256.constants import ROUND_CONSTANTS
-from prover.trace_builders.utils import FIELD_MODULUS
-
-from ast import literal_eval
-
 from . import constants
-from . import utils
-
-from functools import partial
-from collections.abc import Callable
 
 class AuthenticationTraceBuilder(TraceBuilder):
     def togglePadding(self):
@@ -34,10 +24,12 @@ class AuthenticationTraceBuilder(TraceBuilder):
             cert_trace = self.__certbuilder.build_trace(True)
 
             for row in cert_trace.as_list():
-                for col in range(1, len(row)):
+                for col in range(1, 6):
+                    self.__OPBITS[col - 1] = row[col]
+                for col in range(6, len(row)):
                     self.__REGISTERS[col - 1] = row[col]
-                self.__NUM_ROWS += 1
                 self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
             next = self.__input_data[current]["NextInChain"]
             if next != "":
@@ -45,10 +37,12 @@ class AuthenticationTraceBuilder(TraceBuilder):
                 crl_trace = self.__crlbuilder.build_trace(True)
 
                 for row in crl_trace.as_list():
-                    for col in range(1, len(row)):
+                    for col in range(1, 6):
+                        self.__OPBITS[col - 1] = row[col]
+                    for col in range(6, len(row)):
                         self.__REGISTERS[col - 1] = row[col]
-                    self.__NUM_ROWS += 1
                     self.__build_row(trace, in_memory)
+                    self.__NUM_ROWS += 1
             current = next
 
         if self.__hasPadding:
@@ -56,9 +50,7 @@ class AuthenticationTraceBuilder(TraceBuilder):
         return trace
 
     def __pad_rows(self, trace, in_memory):
-        # BUG: SET OPBITS
-
-        self.__NUM_ROWS += 1
+        self.__OPBITS = constants.OPERATION_CODES["PaddingWithoutCounter"]
         target_rows = next_power_of_two(self.__NUM_ROWS)
 
         for _ in range(self.__NUM_ROWS, target_rows):
@@ -76,12 +68,14 @@ class AuthenticationTraceBuilder(TraceBuilder):
         self.__hasPadding = True
 
     def __reset_registers(self):
-        self.__NUM_ROWS = -1
-        self.__REGISTERS = [0] * 402
+        self.__NUM_ROWS = 0
+        self.__OPBITS = [0] * 5
+        self.__REGISTERS = [0] * 397
 
     def __build_registers(self):
         return [
             self.__NUM_ROWS,
+            *self.__OPBITS,
             *self.__REGISTERS
         ]
     

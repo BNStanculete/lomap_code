@@ -43,7 +43,6 @@ class Sha256TraceBuilder(TraceBuilder):
             self.__reconstructed += block.to_bytes(4)
 
         self.__message_blocks = message_block
-        self.__num_blocks = len(self.__message_blocks) // 16
         self.__reset_registers()
 
         # Optionally set the previous hash (if any)
@@ -57,49 +56,56 @@ class Sha256TraceBuilder(TraceBuilder):
         # Set the initial row
         self.__set_input_row(True)
         self.__build_row(trace, in_memory)
+        self.__NUM_ROWS += 1
 
         # Process the SHA-256 blocks
         while blocks_to_process:
             for round in range(16):
                 self.__build_first_half_round(round)
                 self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
                 self.__build_second_half_round()
                 self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
             for round in range(16, 64):
                 self.__build_message_schedule()
                 self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
                 self.__build_first_half_round(round)
                 self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
                 self.__build_second_half_round()
                 self.__build_row(trace, in_memory)
-            self.__build_hash_update()
-            self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
             blocks_to_process = (len(self.__message_blocks) != 0)
             if blocks_to_process:
                 self.__set_input_row()
 
+            self.__build_hash_update()
+            self.__build_row(trace, in_memory)
+            self.__NUM_ROWS += 1
+
         # Build the size attestation
         if self.__hasAttestation:
             self.__build_size_attestation(True)
             self.__build_row(trace, in_memory)
+            self.__NUM_ROWS += 1
 
             for _ in range(3):
                 self.__build_size_attestation()
                 self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
         # Pad to the nearest power of two
         if self.__hasPadding:
-            completed_rows = 177 * self.__num_blocks
-            if self.__hasAttestation:
-                completed_rows += 5
-            for _ in range(completed_rows, next_power_of_two(completed_rows)):
-                self.__NUM_ROWS += 1
+            for _ in range(self.__NUM_ROWS, next_power_of_two(self.__NUM_ROWS)):
                 self.__build_row(trace, in_memory)
+                self.__NUM_ROWS += 1
 
         return trace
 
@@ -116,6 +122,8 @@ class Sha256TraceBuilder(TraceBuilder):
         # Carries 5     are allocated for A
         self.__CARRY = [0 for _ in range(8)]
         self.__HASH = [0 for _ in range(8)]
+        self.__SELECTORS = [0 for _ in range(16)]
+        self.__SELECTORS[0] = 1
 
     def __build_registers(self) -> list[int]:
         """Converts the registers into a trace row.
@@ -127,7 +135,8 @@ class Sha256TraceBuilder(TraceBuilder):
             *self.__BITS,
             *self.__BITWISE_OUTPUT,
             *self.__CARRY,
-            *self.__HASH
+            *self.__HASH,
+            *self.__SELECTORS
         ]
 
     def __set_input_row(self, is_first_row: bool = False):
@@ -138,7 +147,6 @@ class Sha256TraceBuilder(TraceBuilder):
                 or just the next set of message blocks. Defaults to False.
         """
         if is_first_row:
-            self.__NUM_ROWS = 1
             self.__CARRY = [1 for _ in range(8)]
 
             for i in range(8):
@@ -179,8 +187,6 @@ class Sha256TraceBuilder(TraceBuilder):
         Arguments:
             round (int) : The round index. Used in selecting the appropriate constant.
         """
-        self.__NUM_ROWS += 1
-
         # The first 3 sets of BITS store the bitwise decomposition of e,f,g
         for index in range(32):
             self.__BITS[index] = (self.__E >> (31 - index)) & 1
@@ -229,11 +235,13 @@ class Sha256TraceBuilder(TraceBuilder):
             self.__E -= constants.REGISTER_LIMIT
             self.__CARRY[3] = 1
 
+        for i in range(15,0,-1):
+            self.__SELECTORS[i] = self.__SELECTORS[i-1]
+        self.__SELECTORS[0] = 0
+
     def __build_second_half_round(self):
         """Builds T2 and updates A,B,C,D
-        """
-        self.__NUM_ROWS += 1
-        
+        """        
         # The first 3 sets of BITS store the bitwise decomposition of a,b,c
         for index in range(32):
             self.__BITS[index] = (self.__A >> (31 - index)) & 1
@@ -276,8 +284,6 @@ class Sha256TraceBuilder(TraceBuilder):
             self.__CARRY[5] = 1
 
     def __build_message_schedule(self):
-        self.__NUM_ROWS += 1
-
         # Temporarily copy W[0] (W_t-16)
         W16 = self.__W[0]
 
@@ -334,8 +340,6 @@ class Sha256TraceBuilder(TraceBuilder):
     def __build_hash_update(self):
         """Updates the current hash blocks
         """
-        self.__NUM_ROWS += 1
-
         self.__HASH[0] += self.__A
         self.__HASH[1] += self.__B
         self.__HASH[2] += self.__C
@@ -351,9 +355,19 @@ class Sha256TraceBuilder(TraceBuilder):
         
         self.__A, self.__B, self.__C, self.__D, self.__E, self.__F, self.__G, self.__H = self.__HASH
 
-    def __build_size_attestation(self, is_initial = False):
-        self.__NUM_ROWS += 1
+        # Zero out the other registers
+        for i in range(len(self.__BITS)):
+            self.__BITS[i] = 0
+        self.__T1 = 0
+        self.__T2 = 0
+        self.__BITWISE_OUTPUT[0] = 0
+        self.__BITWISE_OUTPUT[1] = 0
 
+        for i in range(16):
+            self.__SELECTORS[i] = 0
+        self.__SELECTORS[0] = 1
+
+    def __build_size_attestation(self, is_initial = False):
         registers_per_set = 24
         for set in range(8):
             for i in range(8):
