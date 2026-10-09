@@ -284,28 +284,25 @@ class CrlTraceBuilder(TraceBuilder):
         Placeholder = [0] * 4
 
         SIGNATURE_REGISTERS = RegisterView(
-            (Placeholder, 0, 4),
-            (self.__SERIAL, 0, 4),
             (self.__ACCUMULATORS, 0, 96),
             (self.__FIELD_VALUE, 0, 32),
             (self.__ATTESTORS, 0, 64),
             (self.__REVOCATORS, 0, 64),
-            (self.__SHA_TRIGGER, 0, 3),
-            (self.__REMAINING, 0, 53)
+            (self.__REMAINING, 0, 65)
         )
 
         for row in signature_trace.as_list():
             if row[0] == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifInput"]
-            elif row[0] % 256 == 1:
+            elif (row[0] - 1) % 256 == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondMulti"]
-            elif row[0] % 256 == 129:
+            elif (row[0] - 1) % 256 == 128:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifMulti"]
-            elif row[0] % 256 == 65:
+            elif (row[0] - 1) % 256 == 64:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondRed"]
-            elif row[0] % 256 == 193:
+            elif (row[0] - 1) % 256 == 192:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifRed"]
-            elif row[0] % 256 < 129 and row[0] % 256 > 1 and row[74] == 0:
+            elif (row[0] - 1) % 256 < 128 and (row[0] - 1) % 256 > 0 and row[74] == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifPadding"]
             else:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifAttest"]
@@ -320,8 +317,7 @@ class CrlTraceBuilder(TraceBuilder):
 
             for col in range(73, len(row)):
                 SIGNATURE_REGISTERS[col - 73] = row[col]
-            
-            self.__CRL_FIELD, self.__CRL_END, self.__HASH_CONSTANT, self.__SIGNATURE_ALGO = Placeholder
+
             self.__build_row(trace, in_memory)
             self.__NUM_ROWS += 1
 
@@ -612,17 +608,15 @@ class CrlTraceBuilder(TraceBuilder):
                 HASH_REGISTERS[col - 1] = row[col]
 
             if relative_row == 0:
-                self.__OPBITS = constants.OPERATION_CODES["HashInputRow"]
-            elif (relative_row < 33 and (relative_row) % 2 == 1) or (relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 1):
+                self.__OPBITS = constants.OPERATION_CODES["HashAggregation"]
+            elif (relative_row < 32 and (relative_row) % 2 == 1) or (relative_row >= 32 and (relative_row) % 3 == 1):
                 self.__OPBITS = constants.OPERATION_CODES["HashFirstHalfRound"]
                 self.__HASH_CONSTANT = ROUND_CONSTANTS[r_index]
-            elif (relative_row < 33 and (relative_row) % 2 == 0) or (relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 2):
+            elif (relative_row < 32 and (relative_row) % 2 == 0) or (relative_row >= 32 and (relative_row) % 3 == 2):
                 self.__OPBITS = constants.OPERATION_CODES["HashSecondHalfRound"]
                 r_index += 1
-            elif relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 0:
+            elif relative_row >= 32 and (relative_row) % 3 == 0:
                 self.__OPBITS = constants.OPERATION_CODES["HashScheduleUpdate"]
-            elif relative_row == 177:
-                self.__OPBITS = constants.OPERATION_CODES["HashAggregation"]
             self.__build_row(trace, in_memory)
             self.__NUM_ROWS += 1
 
@@ -754,6 +748,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__SERIAL = [0] * 4
         self.__PUBLIC_KEY = [0] * 36
         self.__SIGNATURE = [0] * 32
+        self.__POSEIDON_HASH = [0] * 2
 
         # 318 remaining registers that are safe to repurpose
         self.__HASH = [0] * 4
@@ -763,7 +758,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__ATTESTORS = [0] * 64
         self.__REVOCATORS = [0] * 64
         self.__SHA_TRIGGER = [0] * 3
-        self.__REMAINING = [0] * 53    
+        self.__REMAINING = [0] * 65
 
         # Loop counters
         self.__FIELD_LENGTH = 0
@@ -775,10 +770,10 @@ class CrlTraceBuilder(TraceBuilder):
         return [
             self.__NUM_ROWS,            #   S   H   V
             *self.__OPBITS,
-            self.__CRL_FIELD,
-            self.__CRL_END,             #   S
             self.__HASH_CONSTANT,       #   S
             self.__SIGNATURE_ALGO,      #   S
+            self.__CRL_FIELD,
+            self.__CRL_END,             #   S
             *self.__SERIAL,             #   S
             *self.__PUBLIC_KEY,         #   S   H   V
             *self.__SIGNATURE,          #   S
@@ -786,13 +781,14 @@ class CrlTraceBuilder(TraceBuilder):
             self.__CRL_LENGTH,          #   S
             self.__BYTE_COUNTER,        #   S
             self.__ALIGNMENT_COUNTER,   #   S
+            *self.__SHA_TRIGGER,        #   S
             *self.__HASH,               #   S
             *self.__ACCUMULATORS,       #   S
             *self.__FIELD_VALUE,        #   S
             *self.__ATTESTORS,          #   S
             *self.__REVOCATORS,
-            *self.__SHA_TRIGGER,        #   S
-            *self.__REMAINING           #   S(0)
+            *self.__REMAINING,          #   S(0)
+            *self.__POSEIDON_HASH
         ]
     
     def __build_row(self, trace: Trace, in_memory: bool):

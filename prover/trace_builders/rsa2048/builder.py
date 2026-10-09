@@ -111,9 +111,9 @@ class RSA2048TraceBuilder(TraceBuilder):
             self.__build_step_rows(trace, in_memory)
         else:
             for _ in range(128):
-                self.__NUM_ROWS += 1
                 self.__build_row(trace, in_memory)
-
+                self.__NUM_ROWS += 1
+                
         # Now we square the SIGNATURE
         self.__CARRY = [0] * 63
         self.__RESULT = [0] * 64

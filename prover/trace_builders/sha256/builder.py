@@ -235,9 +235,10 @@ class Sha256TraceBuilder(TraceBuilder):
             self.__E -= constants.REGISTER_LIMIT
             self.__CARRY[3] = 1
 
-        for i in range(15,0,-1):
-            self.__SELECTORS[i] = self.__SELECTORS[i-1]
-        self.__SELECTORS[0] = 0
+        if self.__SELECTORS[15] != 1:
+            for i in range(15,0,-1):
+                self.__SELECTORS[i] = self.__SELECTORS[i-1]
+            self.__SELECTORS[0] = 0
 
     def __build_second_half_round(self):
         """Builds T2 and updates A,B,C,D

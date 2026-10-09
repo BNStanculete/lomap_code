@@ -50,7 +50,7 @@ define_constraint!(
         }
 
         //No round constants during serialization
-        result.aggregate_constraint(*index, is_zero(current[constants::HASH_CONSTANT_OFFSET]), flag * next_flag);
+        result.aggregate_constraint(*index, is_zero(current[constants::CONSTANT_OFFSET]), flag * next_flag);
         *index += 1;
     },
     {
