@@ -5,7 +5,7 @@ use winterfell::{
     Air, AirContext, Assertion, EvaluationFrame, TraceInfo, TransitionConstraintDegree,
 };
 
-use super::{constants, BaseElement, FieldElement, ProofOptions, TRACE_WIDTH, CYCLE_LENGTH};
+use super::{constants, BaseElement, FieldElement, ProofOptions};
 use super::constraints::{
     get_register_column,
     get_constraints
@@ -18,6 +18,8 @@ use crate::utils::constraints::ConstraintSpecification;
 
 pub struct PublicInputs {
     pub expected_length: BaseElement,
+    pub expected_hash: Vec<BaseElement>,
+    pub expected_signature: Vec<BaseElement>
 }
 
 impl ToElements<BaseElement> for PublicInputs {
@@ -28,6 +30,8 @@ impl ToElements<BaseElement> for PublicInputs {
 
 pub struct MessageAuthenticationAir {
     context: AirContext<BaseElement>,
+    expected_hash: Vec<BaseElement>,
+    expected_signature: Vec<BaseElement>,
 }
 
 impl Air for MessageAuthenticationAir {
@@ -44,13 +48,15 @@ impl Air for MessageAuthenticationAir {
 
         for constraint in &constraint_vector {
             for degree in &constraint.base_degrees {
-                let (base_degree, periodic_columns) = (degree[0], &degree[1..]);
+                let (base_degree, _) = (degree[0], &degree[1..]);
                 degrees.push(TransitionConstraintDegree::new(base_degree));
             }
         }
 
         MessageAuthenticationAir {
-            context: AirContext::new(trace_info, degrees, 1, options),
+            context: AirContext::new(trace_info, degrees, 41, options),
+            expected_hash: public_inputs.expected_hash,
+            expected_signature: public_inputs.expected_signature
         }
     }
 
@@ -75,36 +81,31 @@ impl Air for MessageAuthenticationAir {
     }
 
     fn get_assertions(&self) -> Vec<Assertion<Self::BaseField>> {
-        // let last_step = self.trace_length() - 1;
-        vec![
+        let last_step = self.trace_length() - 1;
+        let mut assertions: Vec<Assertion<Self::BaseField>> = vec![
             Assertion::single(get_register_column(constants::NUM_ROWS_OFFSET, 0), 0, BaseElement::ZERO),
-            
-            // The A...H registers must store the same initial values as the HASH registers
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 0), 0, constants::INITIAL_HASHES[0]),
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 1), 0, constants::INITIAL_HASHES[1]),
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 2), 0, constants::INITIAL_HASHES[2]),
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 3), 0, constants::INITIAL_HASHES[3]),
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 4), 0, constants::INITIAL_HASHES[4]),
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 5), 0, constants::INITIAL_HASHES[5]),
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 6), 0, constants::INITIAL_HASHES[6]),
-            // Assertion::single(get_register_column(constants::AH_OFFSET, 7), 0, constants::INITIAL_HASHES[7]),
 
-            // // The initial hash values must be those specified by NIST.
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 0), 0, constants::INITIAL_HASHES[0]),
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 1), 0, constants::INITIAL_HASHES[1]),
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 2), 0, constants::INITIAL_HASHES[2]),
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 3), 0, constants::INITIAL_HASHES[3]),
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 4), 0, constants::INITIAL_HASHES[4]),
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 5), 0, constants::INITIAL_HASHES[5]),
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 6), 0, constants::INITIAL_HASHES[6]),
-            // Assertion::single(get_register_column(constants::OUT_HASH_OFFSET, 7), 0, constants::INITIAL_HASHES[7]),
+            // The Placeholder HASH is set to 0 initially
+            Assertion::single(get_register_column(constants::HASH_OFFSET, 0), 0, BaseElement::ZERO),
+            Assertion::single(get_register_column(constants::HASH_OFFSET, 1), 0, BaseElement::ZERO),
+            Assertion::single(get_register_column(constants::HASH_OFFSET, 2), 0, BaseElement::ZERO),
+            Assertion::single(get_register_column(constants::HASH_OFFSET, 3), 0, BaseElement::ZERO),
 
-            // // The Placeholder HASH is set to 0 initially
-            // Assertion::single(get_register_column(constants::HASH_OFFSET, 0), 0, BaseElement::ZERO),
-            // Assertion::single(get_register_column(constants::HASH_OFFSET, 1), 0, BaseElement::ZERO),
-            // Assertion::single(get_register_column(constants::HASH_OFFSET, 2), 0, BaseElement::ZERO),
-            // Assertion::single(get_register_column(constants::HASH_OFFSET, 3), 0, BaseElement::ZERO),
-        ]
+            // The Public Key Poseidon is zero initially
+            Assertion::single(get_register_column(constants::POSEIDON_HASH_OFFSET, 0), 0, BaseElement::ZERO),
+            Assertion::single(get_register_column(constants::POSEIDON_HASH_OFFSET, 1), 0, BaseElement::ZERO),
+
+            // The Public Key Poseidon matches the claimed hash at the end
+            Assertion::single(get_register_column(constants::POSEIDON_HASH_OFFSET, 0), last_step, self.expected_hash[0]),
+            Assertion::single(get_register_column(constants::POSEIDON_HASH_OFFSET, 1), last_step, self.expected_hash[1]),
+        ];
+
+        // The signature is initialized to what we expect
+        for i in 0..32 {
+            assertions.push(Assertion::single(get_register_column(constants::SIGNATURE_OFFSET, i), 0, self.expected_signature[i]));
+        }
+
+        assertions
     }
 
     fn get_periodic_column_values(&self) -> Vec<Vec<Self::BaseField>> {

@@ -540,10 +540,18 @@ if __name__ == '__main__':
                 tested_flows[test_data[test]["TestSuite"]]["MessageAuthentication"] += 1
                 print(f"[+] Executing proofs and verification for {message}")
                 print(f"[+] Writing temporary prover message...")
+                
+                blocks = [(input_data["PublicKey"][0] >> (i * 64)) & ((1 << 64) - 1) for i in range(4)]
+                blocks.reverse()
+                signature_blocks = [(input_data["PublicKey"][1] >> (i * 64)) & ((1 << 64) - 1) for i in range(32)]
+                signature_blocks.reverse()
+
+                blocks.extend(signature_blocks)
+
+                p_hash = poseidon_hash.poseidon_hash_many(blocks)
                 with open(join(temp_path, "message.txt"), "w") as file:
-                    for item in input_data["PublicKey"]:
-                        file.write(str(item))
-                        file.write("\n")
+                    file.write(str(p_hash))
+                    file.write("\n")
 
                     for item in input_data["Signature"]:
                         file.write(str(item))

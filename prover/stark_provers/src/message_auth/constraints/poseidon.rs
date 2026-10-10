@@ -4,11 +4,11 @@ use winterfell::math::{fields::f252::BaseElement, FieldElement};
 
 use crate::utils::constraints::{
     EvaluationResult, ConstraintSpecification,
-    are_equal, is_binary, not, is_linear_decomposition, is_zero, is_division_by_two
+    are_equal
 };
 
 use crate::define_constraint;
-use super::{constants, get_register_column, get_register_column_with_set};
+use super::{constants, get_register_column};
 
 define_constraint!(
     poseidon_general_constraints,

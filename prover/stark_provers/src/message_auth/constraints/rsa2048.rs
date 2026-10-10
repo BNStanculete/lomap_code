@@ -4,11 +4,11 @@ use winterfell::math::{fields::f252::BaseElement, FieldElement};
 
 use crate::utils::constraints::{
     EvaluationResult, ConstraintSpecification,
-    are_equal, is_binary, not, is_linear_decomposition, is_zero, is_division_by_two
+    are_equal, is_binary, not, is_zero
 };
 
 use crate::define_constraint;
-use super::{constants, get_register_column, get_register_column_with_set};
+use super::{constants, get_register_column};
 
 define_constraint!(
     rsa2048_general_constraints,
@@ -117,7 +117,7 @@ define_constraint!(
 
         // Everything is preserved
         for i in 0..127 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::SIGNATURE_ATTESTORS_OFFSET, 0)], next[get_register_column(constants::SIGNATURE_ATTESTORS_OFFSET, 0)]), flag);
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::SIGNATURE_ATTESTORS_OFFSET, i)], next[get_register_column(constants::SIGNATURE_ATTESTORS_OFFSET, i)]), flag);
             *index += 1;
         }
 
@@ -143,10 +143,10 @@ define_constraint!(
         }
 
         for i in 0..32 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::REPRESENTATIVE_OFFSETS, 0)], next[get_register_column(constants::REPRESENTATIVE_OFFSETS, 0)]), flag);
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::REPRESENTATIVE_OFFSETS, i)], next[get_register_column(constants::REPRESENTATIVE_OFFSETS, i)]), flag);
             *index += 1;
 
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::QUOTIENT_OFFSET, 0)], next[get_register_column(constants::QUOTIENT_OFFSET, 0)]), flag);
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::QUOTIENT_OFFSET, i)], next[get_register_column(constants::QUOTIENT_OFFSET, i)]), flag);
             *index += 1;
         }
         for i in 0..32 {
@@ -236,10 +236,10 @@ define_constraint!(
         }
 
         for i in 0..32 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::REPRESENTATIVE_OFFSETS, 0)], next[get_register_column(constants::REPRESENTATIVE_OFFSETS, 0)]), flag);
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::REPRESENTATIVE_OFFSETS, i)], next[get_register_column(constants::REPRESENTATIVE_OFFSETS, i)]), flag);
             *index += 1;
 
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::QUOTIENT_OFFSET, 0)], next[get_register_column(constants::QUOTIENT_OFFSET, 0)]), flag);
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::QUOTIENT_OFFSET, i)], next[get_register_column(constants::QUOTIENT_OFFSET, i)]), flag);
             *index += 1;
         }
         for i in 0..32 {
@@ -268,11 +268,7 @@ define_constraint!(
                       (next[get_register_column(constants::OPCODE_OFFSET, 4)]);
         let multi_flag: E = flag * next[get_register_column(constants::BIT_E_OFFSET, 0)];
         let padding_flag: E = flag * not(next[get_register_column(constants::BIT_E_OFFSET, 0)]);
-
         let two: E = E::from(2u32);
-        let logical_limit: E = E::from(constants::U64_REGISTER_LIMIT);
-
-
         // for i in 32..64 {
         //     result.aggregate_constraint(*index,
         //         (next[get_register_column(constants::SIGNATURE_ATTESTORS_OFFSET, i)] * two - next[get_register_column(constants::RESULT_OFFSET, i)]) *
@@ -356,10 +352,10 @@ define_constraint!(
         }
 
         for i in 0..32 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::REPRESENTATIVE_OFFSETS, 0)], next[get_register_column(constants::REPRESENTATIVE_OFFSETS, 0)]), flag);
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::REPRESENTATIVE_OFFSETS, i)], next[get_register_column(constants::REPRESENTATIVE_OFFSETS, i)]), flag);
             *index += 1;
 
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::QUOTIENT_OFFSET, 0)], next[get_register_column(constants::QUOTIENT_OFFSET, 0)]), flag);
+            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::QUOTIENT_OFFSET, i)], next[get_register_column(constants::QUOTIENT_OFFSET, i)]), flag);
             *index += 1;
         }
         for i in 0..32 {

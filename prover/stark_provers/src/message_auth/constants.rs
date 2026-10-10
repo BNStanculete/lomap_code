@@ -1,8 +1,6 @@
 // Copyright Bogdan Stanculete 2026. All Rights Reserved.
 
 use winterfell::math::{fields::f252::BaseElement, FieldElement};
-use super::CYCLE_LENGTH;
-
 use crate::utils::to_base_element;
 
 // REGISTER OFFSETS

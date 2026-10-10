@@ -8,7 +8,7 @@ use winterfell::{
 
 use super::{
     BaseElement, DefaultRandomCoin, ElementHasher, FieldElement, PhantomData, ProofOptions,
-    Prover, PublicInputs, MessageAuthenticationAir, constants, constraints::get_register_column
+    Prover, PublicInputs, MessageAuthenticationAir
 };
 
 // MessageAuthentication PROVER
@@ -16,12 +16,16 @@ use super::{
 
 pub struct MessageAuthenticationProver<H: ElementHasher> {
     options: ProofOptions,
+    expected_hash: Vec<BaseElement>,
+    expected_signature: Vec<BaseElement>,
     _hasher: PhantomData<H>
 }
 
 impl <H: ElementHasher> MessageAuthenticationProver<H> {
-    pub fn new(options: ProofOptions) -> Self {
-        Self { options, _hasher: PhantomData }
+    pub fn new(options: ProofOptions,
+               expected_hash: Vec<BaseElement>,
+               expected_signature: Vec<BaseElement>) -> Self {
+        Self { options, expected_hash, expected_signature, _hasher: PhantomData }
     }
 
     pub fn build_trace(
@@ -50,6 +54,8 @@ where H: ElementHasher<BaseField = BaseElement> + Sync {
     fn get_pub_inputs(&self, trace: &Self::Trace) -> PublicInputs {
         PublicInputs {
             expected_length: BaseElement::from(trace.length() as u64),
+            expected_hash: self.expected_hash.clone(),
+            expected_signature: self.expected_signature.clone()
         }
     }
 
