@@ -22,7 +22,10 @@ use sha256::{sha256_general_constraints_specification,
 use rsa2048::{rsa2048_general_constraints_specification,
               rsa2048_attestation_constraints_specification,
               rsa2048_padding_constraints_specification,
-              rsa2048_multiplication_constraints_specification};
+              rsa2048_multiplication_constraints_specification,
+              rsa2048_conditional_multiplication_constraints_specification,
+              rsa2048_reduction_constraints_specification,
+              rsa2048_conditional_reduction_constraints_specification};
 
 use poseidon::{poseidon_general_constraints_specification,
                poseidon_round_constraints_specification,
@@ -48,7 +51,9 @@ pub fn get_constraints<E: FieldElement + From<BaseElement>>(trace_length: usize)
     constraints.push(rsa2048_attestation_constraints_specification(trace_length));
     constraints.push(rsa2048_padding_constraints_specification(trace_length));
     constraints.push(rsa2048_multiplication_constraints_specification(trace_length));
-    // constraints.push(rsa2048_conditional_multiplication_constraints_specification(trace_length));
+    constraints.push(rsa2048_conditional_multiplication_constraints_specification(trace_length));
+    constraints.push(rsa2048_reduction_constraints_specification(trace_length));
+    constraints.push(rsa2048_conditional_reduction_constraints_specification(trace_length));
 
     // Poseidon constraints
     constraints.push(poseidon_general_constraints_specification(trace_length));

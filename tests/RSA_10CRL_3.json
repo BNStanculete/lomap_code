@@ -15,8 +15,7 @@
     },
     "MessageFlow": [
         {
-            "Type": "MessageAuthentication",
-            "Message": "This is a test message. So it seems..."
+            "Type": "CRLUpdate"
         }
     ]
 }

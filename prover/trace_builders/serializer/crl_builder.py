@@ -92,6 +92,9 @@ class CrlTraceBuilder(TraceBuilder):
             (_, oid), (_, value), (_, length), (_, sublength) = pair.items()
 
             if oid != 'C':
+                if oid == 'CN':
+                    assert length < 64, "Common Name Cannot go directly in Poseidon"
+                    
                 self.__conditional_serialize([
                     partial(self.__set_header, constants.SET, length),
                     partial(self.__build_row, trace, in_memory),
@@ -147,6 +150,8 @@ class CrlTraceBuilder(TraceBuilder):
                 ], trace, in_memory)
 
         # 5) We now encode the time interval fields -- GOES IN POSEIDON
+        assert len(self.__input_data["CRLFields"]["ThisUpdate"]), "ThisUpdate Cannot go directly in Poseidon"
+
         self.__conditional_serialize([
             partial(self.__set_header, constants.UTC_TIME, len(self.__input_data["CRLFields"]["ThisUpdate"]), True),
             partial(self.__build_row, trace, in_memory),
@@ -159,6 +164,8 @@ class CrlTraceBuilder(TraceBuilder):
         ], trace, in_memory)
 
         if "NextUpdate" in self.__input_data["CRLFields"].keys():
+            assert len(self.__input_data["CRLFields"]["NextUpdate"]), "NextUpdate Cannot go directly in Poseidon"
+
             self.__conditional_serialize([
                 partial(self.__set_header, constants.UTC_TIME, len(self.__input_data["CRLFields"]["NextUpdate"]), True),
                 partial(self.__build_row, trace, in_memory),
@@ -749,6 +756,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__PUBLIC_KEY = [0] * 36
         self.__SIGNATURE = [0] * 32
         self.__POSEIDON_HASH = [0] * 2
+        self.__POSEIDON_INPUT = [0] * 2
 
         # 318 remaining registers that are safe to repurpose
         self.__HASH = [0] * 4
@@ -770,24 +778,26 @@ class CrlTraceBuilder(TraceBuilder):
         return [
             self.__NUM_ROWS,            #   S   H   V
             *self.__OPBITS,
-            self.__HASH_CONSTANT,       #   S
-            self.__SIGNATURE_ALGO,      #   S
-            self.__CRL_FIELD,
-            self.__CRL_END,             #   S
             *self.__SERIAL,             #   S
             *self.__PUBLIC_KEY,         #   S   H   V
             *self.__SIGNATURE,          #   S
+            *self.__HASH,               #   S
+            self.__HASH_CONSTANT,       #   S
+
+            self.__SIGNATURE_ALGO,      #   S
+            self.__CRL_FIELD,
+            self.__CRL_END,             #   S
             self.__FIELD_LENGTH,        #   S
             self.__CRL_LENGTH,          #   S
             self.__BYTE_COUNTER,        #   S
             self.__ALIGNMENT_COUNTER,   #   S
             *self.__SHA_TRIGGER,        #   S
-            *self.__HASH,               #   S
             *self.__ACCUMULATORS,       #   S
             *self.__FIELD_VALUE,        #   S
             *self.__ATTESTORS,          #   S
             *self.__REVOCATORS,
             *self.__REMAINING,          #   S(0)
+            *self.__POSEIDON_INPUT,
             *self.__POSEIDON_HASH
         ]
     
