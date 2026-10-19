@@ -3,7 +3,8 @@ from prover.trace_builders.rsa2048 import RSA2048TraceBuilder
 from prover.trace_builders.sha256 import Sha256TraceBuilder
 from prover.trace_builders.poseidon import PoseidonTraceBuilder
 from prover.trace_builders.sha256.constants import TRACE_WIDTH as SHA_TRACE_WIDTH
-from prover.trace_builders.sha256.constants import ROUND_CONSTANTS
+from prover.trace_builders.sha256.constants import ROUND_CONSTANTS as SHA_ROUND_CONSTANTS
+from prover.trace_builders.sha256.constants import INITIAL_HASHES as SHA_HASH_CONSTANTS
 from prover.trace_builders.utils import FIELD_MODULUS
 
 from ast import literal_eval
@@ -32,12 +33,41 @@ class CrlTraceBuilder(TraceBuilder):
         self.__parse_signature_and_key()
         self.__parse_serial()
 
+        for i in range(4):
+            self.__HASH[i] = (SHA_HASH_CONSTANTS[2 * i] << 32) | SHA_HASH_CONSTANTS[2 * i + 1]
+
     def build_trace(self, in_memory):
         trace = Trace()
 
         # Build the input row
         self.__build_row(trace, in_memory)
         self.__NUM_ROWS += 1
+
+        # Initial Poseidon trace of the serial and public key
+        # poseidon_blocks = [
+        #     self.__SERIAL[0] << 64 | self.__SERIAL[1],
+        #     self.__SERIAL[2] << 64 | self.__SERIAL[3],
+        # ]
+
+        poseidon_blocks = []
+        for i in range(0,36,2):
+            poseidon_blocks.append(self.__PUBLIC_KEY[i] << 64 | self.__PUBLIC_KEY[i+1])
+        poseidon_blocks.append(1)
+        poseidon_blocks.append(0)
+        self.__POSEIDON_INPUT_SELECTOR[0] = 1
+        self.__POSEIDON_INPUT_SELECTOR[1] = 1
+        self.__build_poseidon_trace(trace, in_memory, poseidon_blocks, True)
+        self.__poseidon_hasher.start_new_trace()
+
+        poseidon_blocks = [
+            self.__SERIAL[0] << 64 | self.__SERIAL[1],
+            self.__SERIAL[2] << 64 | self.__SERIAL[3],
+            self.__POSEIDON_HASH[0],
+            self.__POSEIDON_HASH[1]
+        ]
+        self.__POSEIDON_INPUT_SELECTOR[0] = 1
+        self.__POSEIDON_INPUT_SELECTOR[1] = 1
+        self.__build_poseidon_trace(trace, in_memory, poseidon_blocks)
 
         # 1) We set the TBSCertList Header
         self.__conditional_serialize([
@@ -92,35 +122,60 @@ class CrlTraceBuilder(TraceBuilder):
             (_, oid), (_, value), (_, length), (_, sublength) = pair.items()
 
             if oid != 'C':
-                if oid == 'CN':
-                    assert length < 64, "Common Name Cannot go directly in Poseidon"
-                    
-                self.__conditional_serialize([
-                    partial(self.__set_header, constants.SET, length),
-                    partial(self.__build_row, trace, in_memory),
-                    partial(self.__increment_rows),
-                    partial(self.__write_value_encoding, trace, in_memory),
-                    partial(self.__set_header, constants.SEQUENCE, sublength),
-                    partial(self.__build_row, trace, in_memory),
-                    partial(self.__increment_rows),
-                    partial(self.__write_value_encoding, trace, in_memory),
-                    partial(self.__set_oid_header, oid),
-                    partial(self.__build_row, trace, in_memory),
-                    partial(self.__increment_rows),
-                    partial(self.__write_value_encoding, trace, in_memory),
-                    partial(self.__set_oid_value, oid),
-                    partial(self.__build_row, trace, in_memory),
-                    partial(self.__increment_rows),
-                    partial(self.__write_value_encoding, trace, in_memory),
-                    partial(self.__set_header, constants.UTF8_STRING, len(value)),
-                    partial(self.__build_row, trace, in_memory),
-                    partial(self.__increment_rows),
-                    partial(self.__write_value_encoding, trace, in_memory),
-                    partial(self.__set_string_value, value),
-                    partial(self.__build_row, trace, in_memory),
-                    partial(self.__increment_rows),
-                    partial(self.__write_value_encoding, trace, in_memory),
-                ], trace, in_memory)
+                if oid == 'CN':        
+                    self.__conditional_serialize([
+                        partial(self.__set_header, constants.SET, length),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_header, constants.SEQUENCE, sublength),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_oid_header, oid),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_oid_value, oid),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_header, constants.UTF8_STRING, len(value)),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_string_value, value, True),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                    ], trace, in_memory)
+                else:
+                    self.__conditional_serialize([
+                        partial(self.__set_header, constants.SET, length),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_header, constants.SEQUENCE, sublength),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_oid_header, oid),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_oid_value, oid),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_header, constants.UTF8_STRING, len(value)),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                        partial(self.__set_string_value, value),
+                        partial(self.__build_row, trace, in_memory),
+                        partial(self.__increment_rows),
+                        partial(self.__write_value_encoding, trace, in_memory),
+                    ], trace, in_memory)
             else:
                 self.__conditional_serialize([
                     partial(self.__set_header, constants.SET, length),
@@ -157,11 +212,14 @@ class CrlTraceBuilder(TraceBuilder):
             partial(self.__build_row, trace, in_memory),
             partial(self.__increment_rows),
             partial(self.__write_value_encoding, trace, in_memory),
-            partial(self.__set_string_value, self.__input_data["CRLFields"]["ThisUpdate"]),
+            partial(self.__set_string_value, self.__input_data["CRLFields"]["ThisUpdate"], True),
             partial(self.__build_row, trace, in_memory),
             partial(self.__increment_rows),
             partial(self.__write_value_encoding, trace, in_memory),
         ], trace, in_memory)
+
+        # This has filled the poseidon blocks, so we perform a poseidon round
+        self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
 
         if "NextUpdate" in self.__input_data["CRLFields"].keys():
             assert len(self.__input_data["CRLFields"]["NextUpdate"]), "NextUpdate Cannot go directly in Poseidon"
@@ -171,11 +229,22 @@ class CrlTraceBuilder(TraceBuilder):
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__increment_rows),
                 partial(self.__write_value_encoding, trace, in_memory),
-                partial(self.__set_string_value, self.__input_data["CRLFields"]["NextUpdate"]),
+                partial(self.__set_string_value, self.__input_data["CRLFields"]["NextUpdate"], True),
                 partial(self.__build_row, trace, in_memory),
                 partial(self.__increment_rows),
                 partial(self.__write_value_encoding, trace, in_memory),
             ], trace, in_memory)
+
+            # This is the final one so we set padding
+            self.__POSEIDON_INPUT[1] = 1
+            self.__POSEIDON_INPUT_SELECTOR[1] = 1
+            self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
+        else:
+            self.__POSEIDON_INPUT[0] = 1
+            self.__POSEIDON_INPUT_SELECTOR[0] = 1
+            self.__POSEIDON_INPUT_SELECTOR[1] = 1
+            self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
+
 
         # 6) We encode the revoked serials
         if self.__input_data["CRLFields"]["RevokedLength"] > 0:
@@ -264,12 +333,100 @@ class CrlTraceBuilder(TraceBuilder):
 
         return trace
 
+    def __build_poseidon_trace(self, trace, in_memory, blocks, control_input = False):
+        self.__poseidon_blocks += len(blocks)
+
+        POSEIDON_REGISTERS = RegisterView(
+            (self.__ATTESTORS, 0, 64),
+            (self.__REVOCATORS, 0, 64),
+            (self.__REMAINING, 0, 64)
+        )
+
+        for i in range(192):
+            POSEIDON_REGISTERS[i] = 0
+
+        pub_key_index = 1
+        for i in range(0, len(blocks), 2):
+            self.__POSEIDON_INPUT[0] = blocks[i]
+            self.__POSEIDON_INPUT[1] = blocks[i+1]
+            self.__POSEIDON_INPUT_SELECTOR[0] = 1
+            self.__POSEIDON_INPUT_SELECTOR[1] = 1
+
+            self.__poseidon_hasher.absorb_block([blocks[i], blocks[i+1]])
+            poseidon_trace = self.__poseidon_hasher.build_trace(True)
+            poseidon_trace = poseidon_trace.as_list()
+
+            row_index = 0
+            while row_index < len(poseidon_trace):
+                if row_index % 91 == 0:
+                    self.__OPBITS = constants.OPERATION_CODES["PoseidonInput"]
+                elif row_index % 91 == 80:
+                    self.__OPBITS = constants.OPERATION_CODES["PoseidonOutput"]
+                else:
+                    self.__OPBITS = constants.OPERATION_CODES["PoseidonRound"]
+
+                for set in range(16):
+                    row_input = poseidon_trace[row_index][2:5]
+                    row_constants = poseidon_trace[row_index][5:8]
+                    row_output = poseidon_trace[row_index][8:]
+
+                    # Now we decompose the input into 2 128-bit limbs
+                    for i in range(3):
+                        POSEIDON_REGISTERS[set * 12 + 2 * i] = row_input[i] >> 128
+                        POSEIDON_REGISTERS[set * 12 + 2 * i + 1] = row_input[i] & ((1 << 128) - 1)
+
+                    # Now we decompose the constants
+                    for i in range(3):
+                        POSEIDON_REGISTERS[set * 12 + 2 * i + 6] = row_constants[i] >> 128
+                        POSEIDON_REGISTERS[set * 12 + 2 * i + 7] = row_constants[i] & ((1 << 128) - 1)
+
+                    # After we process the last row of a hash we always break
+                    if row_index % 91 == 90:
+                        # Here we also write the output...
+                        for i in range(3):
+                            POSEIDON_REGISTERS[set * 12 + 2 * i + 12] = row_output[i] >> 128
+                            POSEIDON_REGISTERS[set * 12 + 2 * i + 13] = row_output[i] & ((1 << 128) - 1)
+
+                        for i in range(set * 12 + 18, 192):
+                            POSEIDON_REGISTERS[i] = 0
+
+                        # Now we set the bits.
+                        if control_input and pub_key_index < 9:
+                            assert 192 - 18 - set * 12 > 18, "Not enough bits for PUB_KEY selector"
+
+                            POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index] = 1
+                            POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index + 1] = 1
+                            pub_key_index += 1
+
+                        # And we copy the digest
+                        self.__POSEIDON_HASH[0] = row_output[0] >> 128
+                        self.__POSEIDON_HASH[1] = row_output[0] & ((1 << 128) - 1)
+
+                        self.__build_row(trace, in_memory)
+                        self.__NUM_ROWS += 1
+                        row_index += 1
+
+                        self.__POSEIDON_INPUT_SELECTOR[0] = 0
+                        self.__POSEIDON_INPUT_SELECTOR[1] = 0
+                        self.__POSEIDON_INPUT[0] = 0
+                        self.__POSEIDON_INPUT[1] = 0
+                        
+                        break
+
+                    row_index += 1
+                else:
+                    self.__build_row(trace, in_memory)
+                    self.__NUM_ROWS += 1
+
+        for i in range(192):
+            POSEIDON_REGISTERS[i] = 0
+
     def __increment_rows(self):
         self.__NUM_ROWS += 1
 
     def __add_zero(self):
         self.__FIELD_LENGTH = 1
-        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         self.__do_book_keeping()
 
     def __get_num_zeroes(self, length: int):
@@ -280,7 +437,7 @@ class CrlTraceBuilder(TraceBuilder):
             self.__CRL_END = 1
             self.__CRL_FIELD += 1
 
-        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         self.__CRL_FIELD += 1
 
         self.__FIELD_LENGTH = 1
@@ -288,15 +445,16 @@ class CrlTraceBuilder(TraceBuilder):
         self.__do_book_keeping()
 
     def __write_signature_trace(self, signature_trace, trace, in_memory):
-        Placeholder = [0] * 4
-
         SIGNATURE_REGISTERS = RegisterView(
             (self.__ACCUMULATORS, 0, 96),
             (self.__FIELD_VALUE, 0, 32),
             (self.__ATTESTORS, 0, 64),
             (self.__REVOCATORS, 0, 64),
-            (self.__REMAINING, 0, 65)
+            (self.__REMAINING, 0, 64)
         )
+
+        for i in range(len(SIGNATURE_REGISTERS)):
+            SIGNATURE_REGISTERS[i] = 0
 
         for row in signature_trace.as_list():
             if row[0] == 0:
@@ -324,7 +482,7 @@ class CrlTraceBuilder(TraceBuilder):
 
             for col in range(73, len(row)):
                 SIGNATURE_REGISTERS[col - 73] = row[col]
-
+            
             self.__build_row(trace, in_memory)
             self.__NUM_ROWS += 1
 
@@ -350,7 +508,7 @@ class CrlTraceBuilder(TraceBuilder):
         return (signature, repr, pub_key)
 
     def __complete_padding(self, length: int):
-        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         self.__CRL_FIELD += 1
 
         bit_length = length * 8
@@ -366,37 +524,37 @@ class CrlTraceBuilder(TraceBuilder):
     def __set_revoked_serial(self, serial: int):
         # First 4 revocators store the representation of the serial in 64-bits
         copy = serial
-        
+
         for idx in range(3):
             self.__REVOCATORS[3 - idx] = copy & 0xFFFFFFFFFFFFFFFF
             copy >>= 64
 
         # Next 4 revocators store the inverse (if it exists)
-        for idx in range(3):
+        for idx in range(4):
             if self.__SERIAL[idx] != self.__REVOCATORS[idx]:
                 inverse = get_modular_inverse(abs(self.__SERIAL[idx] - self.__REVOCATORS[idx]))
 
-                if self.__SERIAL[idx] - self.__REVOCATORS[idx] < 0:
-                    self.__REVOCATORS[4 + idx] = FIELD_MODULUS - inverse
+                if inverse < 0:
+                    self.__REVOCATORS[4 + 2 * idx] = ((FIELD_MODULUS + inverse) >> 128) & (pow(2, 128) - 1)
+                    self.__REVOCATORS[4 + 2 * idx + 1] = (FIELD_MODULUS + inverse) & (pow(2, 128) - 1)
                 else:
-                    self.__REVOCATORS[4 + idx] = inverse
+                    self.__REVOCATORS[4 + 2 * idx] = (inverse >> 128) & (pow(2, 128) - 1)
+                    self.__REVOCATORS[4 + 2 * idx + 1] = inverse & (pow(2, 128) - 1)
+
+                assert ((self.__SERIAL[idx] - self.__REVOCATORS[idx]) * (self.__REVOCATORS[4 + 2 * idx] << 128 | self.__REVOCATORS[4 + 2 * idx + 1])) % FIELD_MODULUS == 1, "Wrong inverse."
 
         # Next 4 revocators store the binary equivalent
-        for idx in range(3):
-            self.__REVOCATORS[8 + idx] = (self.__REVOCATORS[4 + idx] * (self.__SERIAL[idx] - self.__REVOCATORS[idx])) % FIELD_MODULUS
+        for idx in range(4):
+            if self.__SERIAL[idx] - self.__REVOCATORS[idx] == 0:
+                self.__REVOCATORS[12 + idx] = 0
+            else:
+                self.__REVOCATORS[12 + idx] = 1
 
         # We need to have 1, 2, 3 or 4 - 1s.
-        self.__REVOCATORS[12] = sum(self.__REVOCATORS[8:12])
-        self.__REVOCATORS[13] = self.__REVOCATORS[12] // 2
-        self.__REVOCATORS[14] = self.__REVOCATORS[12] % 2
-        self.__REVOCATORS[15] = self.__REVOCATORS[13] // 2
-        self.__REVOCATORS[16] = self.__REVOCATORS[13] % 2
-        self.__REVOCATORS[17] = self.__REVOCATORS[15] // 2
-        self.__REVOCATORS[18] = self.__REVOCATORS[15] % 2
-        self.__REVOCATORS[19] = self.__REVOCATORS[14] + self.__REVOCATORS[16] + self.__REVOCATORS[18]
+        self.__REVOCATORS[16] = sum(self.__REVOCATORS[12:16])
 
         # Now we put the value in the field
-        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["SerializationWithRevocation"]
 
         copy = serial
         byte_counter = 0
@@ -413,8 +571,11 @@ class CrlTraceBuilder(TraceBuilder):
         self.__do_book_keeping()
         
 
-    def __set_string_value(self, value: str):
-        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+    def __set_string_value(self, value: str, add_to_poseidon: bool = False):
+        if add_to_poseidon:
+            self.__OPBITS = constants.OPERATION_CODES["SerializationWithHash"]
+        else:
+            self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         self.__FIELD_LENGTH = len(value)
 
         for idx in range(len(value)):
@@ -430,7 +591,7 @@ class CrlTraceBuilder(TraceBuilder):
             byte_counter += 1
             copy >>= 8
 
-        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         self.__FIELD_LENGTH = byte_counter
 
         for idx in range(byte_counter):
@@ -450,7 +611,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__set_header(constants.OID, byte_counter)
 
     def __set_header(self, tag: int, length: int, new_field: bool = False):
-        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         
         if new_field:
             self.__CRL_FIELD += 1
@@ -463,7 +624,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__do_book_keeping()
 
     def __set_signature_oid_value(self):
-        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
 
         if self.__SIGNATURE_ALGO == 1:
             oid = utils.OID2Hex(constants.OIDs["SHA256_RSA"])
@@ -476,7 +637,7 @@ class CrlTraceBuilder(TraceBuilder):
             self.__do_book_keeping()
 
     def __set_version_value(self):
-        self.__OPBITS = constants.OPERATION_CODES["FieldSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         self.__FIELD_LENGTH = 1
         self.__FIELD_VALUE[0] = self.__input_data["CRLFields"]["Version"]
         self.__do_book_keeping()
@@ -490,7 +651,7 @@ class CrlTraceBuilder(TraceBuilder):
         length = len(length_tl)
         length_tl = utils.BuildTL(constants.SEQUENCE, self.__input_data["CRLFields"]["TBSLength"] - length)
 
-        self.__OPBITS = constants.OPERATION_CODES["HeaderSerialization"]
+        self.__OPBITS = constants.OPERATION_CODES["NormalSerialization"]
         self.__CRL_LENGTH = self.__input_data["CRLFields"]["TBSLength"]
         self.__FIELD_LENGTH = len(length_tl)
 
@@ -549,6 +710,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__raw = b''
         self.__trace_file = trace_file
         self.__hasPadding = True
+        self.__poseidon_blocks = 0
 
         # Internal builders for hashing & signature verification
         self.__hasher = Sha256TraceBuilder(trace_file)
@@ -575,15 +737,15 @@ class CrlTraceBuilder(TraceBuilder):
     def __execute_hash_round(self, trace, in_memory):
         # Invariant: FIELD_LENGTH == 0 && BYTE_COUNTER >= 64s
         # 1) Left-align the accumulators and pad to a multiple of 256 (preparation)
-        self.__allign_accumulators(trace, in_memory, left=True)
+        self.__allign_accumulators(trace, in_memory, left=False)
 
         # 2) Combine accumulators into 4-byte blocks and extract hashes
         message_blocks = []
-        for index in range(0, 64, 4):
+        for index in range(95, 31, -4):
             block = (self.__ACCUMULATORS[index] << 24)    |   \
-                    (self.__ACCUMULATORS[index+1] << 16)  |   \
-                    (self.__ACCUMULATORS[index+2] << 8)   |   \
-                    (self.__ACCUMULATORS[index+3])
+                    (self.__ACCUMULATORS[index-1] << 16)  |   \
+                    (self.__ACCUMULATORS[index-2] << 8)   |   \
+                    (self.__ACCUMULATORS[index-3])
             message_blocks.append(block)
         
         hashes = []
@@ -597,28 +759,35 @@ class CrlTraceBuilder(TraceBuilder):
 
         # 4) Map registers for SHA-trace
         HASH_REGISTERS = RegisterView(
-            (self.__ACCUMULATORS, 0, 64),
+            (self.__ACCUMULATORS, 32, 64),
             (self.__FIELD_VALUE, 0, 32),
             (self.__ATTESTORS, 0, 64),
             (self.__REVOCATORS, 0, 64),
-            (self.__REMAINING, 0, 61)
+            (self.__REMAINING, 0, 60)
         )
+
+        # Clear the registers just in case
+        for i in range(len(HASH_REGISTERS)):
+            HASH_REGISTERS[i] = 0
 
         # 5) Start writing the SHA-trace
         r_index = 0
-        for row in hash_trace.as_list():
+        for idx, row in enumerate(hash_trace.as_list()):
             r_index %= 64
-            relative_row = row[0] % 178
+            relative_row = row[0] % 177
             
             self.__HASH_CONSTANT = 0
             for col in range(1, len(row)):
                 HASH_REGISTERS[col - 1] = row[col]
 
             if relative_row == 0:
-                self.__OPBITS = constants.OPERATION_CODES["HashAggregation"]
+                if row[0] != 0:
+                    self.__OPBITS = constants.OPERATION_CODES["HashAggregation"]
+                else:
+                    self.__OPBITS = constants.OPERATION_CODES["HashInputRow"]
             elif (relative_row < 32 and (relative_row) % 2 == 1) or (relative_row >= 32 and (relative_row) % 3 == 1):
                 self.__OPBITS = constants.OPERATION_CODES["HashFirstHalfRound"]
-                self.__HASH_CONSTANT = ROUND_CONSTANTS[r_index]
+                self.__HASH_CONSTANT = SHA_ROUND_CONSTANTS[r_index]
             elif (relative_row < 32 and (relative_row) % 2 == 0) or (relative_row >= 32 and (relative_row) % 3 == 2):
                 self.__OPBITS = constants.OPERATION_CODES["HashSecondHalfRound"]
                 r_index += 1
@@ -633,13 +802,13 @@ class CrlTraceBuilder(TraceBuilder):
         for idx in range(4):
             self.__HASH[3 - idx] = ((HASH_REGISTERS[266 - 2* idx] << 32) | HASH_REGISTERS[267 - 2* idx])
 
-        for idx in range(SHA_TRACE_WIDTH):
+        for idx in range(SHA_TRACE_WIDTH - 1):
             HASH_REGISTERS[idx] = 0
         self.__build_row(trace, in_memory)
         self.__NUM_ROWS += 1
 
         # 7) We reallign to the right
-        self.__allign_accumulators(trace, in_memory, left=False)
+        self.__allign_accumulators(trace, in_memory, left=True)
 
         # 8) We update the byte_counter accordingly
         self.__OPBITS = constants.OPERATION_CODES["PostHashBookkeeping"]
@@ -650,14 +819,24 @@ class CrlTraceBuilder(TraceBuilder):
 
     def __write_value_encoding(self, trace: Trace, in_memory: bool):
         while self.__FIELD_LENGTH > 0:
+            if self.__OPBITS == constants.OPERATION_CODES["SerializationWithHash"]:
+                self.__POSEIDON_INPUT[self.__POSEIDON_INPUT_SELECTOR[0]] <<= 8
+                self.__POSEIDON_INPUT[self.__POSEIDON_INPUT_SELECTOR[0]] |= self.__FIELD_VALUE[0]
+
             self.__update_accumulators()
             self.__build_row(trace, in_memory)
             self.__NUM_ROWS += 1
 
+        if self.__OPBITS == constants.OPERATION_CODES["SerializationWithHash"]:
+            if self.__POSEIDON_INPUT_SELECTOR[0] == 0:
+                self.__POSEIDON_INPUT_SELECTOR[0] = 1
+            else:
+                self.__POSEIDON_INPUT_SELECTOR[1] = 1
+
     def __update_accumulators(self):
-        for idx in range(1, len(self.__ACCUMULATORS)):
-            self.__ACCUMULATORS[idx - 1] = self.__ACCUMULATORS[idx]
-        self.__ACCUMULATORS[-1] = self.__FIELD_VALUE[0]
+        for idx in range(len(self.__ACCUMULATORS) - 1, 0, -1):
+            self.__ACCUMULATORS[idx] = self.__ACCUMULATORS[idx - 1]
+        self.__ACCUMULATORS[0] = self.__FIELD_VALUE[0]
         self.__raw += self.__FIELD_VALUE[0].to_bytes(1)
 
         for idx in range(1, len(self.__FIELD_VALUE)):
@@ -726,7 +905,7 @@ class CrlTraceBuilder(TraceBuilder):
         # Update allignment counter
         self.__ALIGNMENT_COUNTER = len(self.__ACCUMULATORS) - self.__BYTE_COUNTER
 
-        # Break down the CRLField
+        # Break down the CRLField (I care for value 6 so 1 1 0)
         copy = self.__CRL_FIELD
         for i in range(1, 6):
             self.__REMAINING[6 - i] = copy % 2
@@ -757,6 +936,7 @@ class CrlTraceBuilder(TraceBuilder):
         self.__SIGNATURE = [0] * 32
         self.__POSEIDON_HASH = [0] * 2
         self.__POSEIDON_INPUT = [0] * 2
+        self.__POSEIDON_INPUT_SELECTOR = [0] * 2
 
         # 318 remaining registers that are safe to repurpose
         self.__HASH = [0] * 4
@@ -773,6 +953,9 @@ class CrlTraceBuilder(TraceBuilder):
         self.__CRL_LENGTH = 0
         self.__BYTE_COUNTER = 0
         self.__ALIGNMENT_COUNTER = len(self.__ACCUMULATORS)
+
+        self.__add_to_poseidon = 0
+        self.__poseidon_blocks = 0
 
     def __build_registers(self):
         return [
@@ -798,7 +981,8 @@ class CrlTraceBuilder(TraceBuilder):
             *self.__REVOCATORS,
             *self.__REMAINING,          #   S(0)
             *self.__POSEIDON_INPUT,
-            *self.__POSEIDON_HASH
+            *self.__POSEIDON_HASH,
+            *self.__POSEIDON_INPUT_SELECTOR
         ]
     
     def __build_row(self, trace: Trace, in_memory: bool):

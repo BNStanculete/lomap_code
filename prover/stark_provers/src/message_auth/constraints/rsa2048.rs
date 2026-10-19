@@ -137,7 +137,7 @@ define_constraint!(
             *index += 1;
 
             if i < 63 {
-                result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::CARRY_OFFSET, 0)], next[get_register_column(constants::CARRY_OFFSET, 0)]), flag);
+                result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::SIGNATURE_CARRY_OFFSET, 0)], next[get_register_column(constants::SIGNATURE_CARRY_OFFSET, 0)]), flag);
                 *index += 1;
             }
         }
@@ -376,7 +376,7 @@ define_constraint!(
 );
 
 define_constraint!(
-    rsa2048_reduction_constraints,
+    rsa2048_conditional_reduction_constraints,
     |index, result, current, next, periodic_values, trace_length | {
         let flag: E = (next[get_register_column(constants::OPCODE_OFFSET, 0)]) *
                       (next[get_register_column(constants::OPCODE_OFFSET, 1)]) *
@@ -497,7 +497,7 @@ define_constraint!(
 );
 
 define_constraint!(
-    rsa2048_conditional_reduction_constraints,
+    rsa2048_reduction_constraints,
     |index, result, current, next, periodic_values, trace_length | {
         let flag: E = (next[get_register_column(constants::OPCODE_OFFSET, 0)]) *
                       (next[get_register_column(constants::OPCODE_OFFSET, 1)]) *

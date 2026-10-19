@@ -3,6 +3,10 @@ from prover.trace_builders.utils import FIELD_MODULUS
 from . import constants
 
 class PoseidonTraceBuilder(TraceBuilder):
+    def start_new_trace(self):
+        self.__reset_registers()
+        self.__blocks = []
+
     def build_trace(self, in_memory):
         trace = Trace()
 

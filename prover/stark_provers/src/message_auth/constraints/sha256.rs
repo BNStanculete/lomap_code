@@ -24,7 +24,7 @@ define_constraint!(
 
         // The carries are binary values
         for i in 0..8 {
-            result.aggregate_constraint(*index, is_binary(current[get_register_column(constants::CARRY_OFFSET, i)]), flag);
+            result.aggregate_constraint(*index, is_binary(current[get_register_column(constants::HASH_CARRY_OFFSET, i)]), flag);
             *index += 1;
         }
 
@@ -84,6 +84,7 @@ define_constraint!(
             powers_of_two.push(E::from(constants::POWERS_OF_TWO[31 - i]));
         }
 
+        // --- BUG HERE ---
         result.aggregate_constraint(*index, is_linear_decomposition(current[get_register_column(constants::AH_OFFSET, 4)],
                                                                     e_bit_slice.as_slice(),
                                                                     powers_of_two.as_slice()),
@@ -147,9 +148,10 @@ define_constraint!(
 
         // T1 is correctly computed and reduced
         let left_side = next[get_register_column(constants::AH_OFFSET, 8)] +    
-                        next[get_register_column(constants::CARRY_OFFSET, 0)] * logical_limit +
-                        next[get_register_column(constants::CARRY_OFFSET, 1)] * logical_limit +
-                        next[get_register_column(constants::CARRY_OFFSET, 2)] * logical_limit;
+                        next[get_register_column(constants::HASH_CARRY_OFFSET, 0)] * logical_limit +
+                        next[get_register_column(constants::HASH_CARRY_OFFSET, 1)] * logical_limit +
+                        next[get_register_column(constants::HASH_CARRY_OFFSET, 2)] * logical_limit +
+                        next[get_register_column(constants::HASH_CARRY_OFFSET, 3)] * logical_limit;
 
         let right_side = current[get_register_column(constants::AH_OFFSET, 7)] +
                         next[get_register_column(constants::BITWISE_OUTPUT_OFFSET, 0)] +
@@ -183,7 +185,7 @@ define_constraint!(
                                                       next[get_register_column(constants::AH_OFFSET, 8)],
 
                                                       next[get_register_column(constants::AH_OFFSET, 4)] +
-                                                      next[get_register_column(constants::CARRY_OFFSET, 3)] * logical_limit),
+                                                      next[get_register_column(constants::HASH_CARRY_OFFSET, 4)] * logical_limit),
                                     flag);
         *index += 1;
 
@@ -200,10 +202,8 @@ define_constraint!(
                                         flag);
             *index += 1;
         }
-        for i in 4..8 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::CARRY_OFFSET, i)],
-                                                          next[get_register_column(constants::CARRY_OFFSET, i)]),
-                                        flag);
+        for i in 5..8 {
+            result.aggregate_constraint(*index, is_zero(next[get_register_column(constants::HASH_CARRY_OFFSET, i)]), flag);
             *index += 1;
         }
         for i in 0..8 {
@@ -342,7 +342,7 @@ define_constraint!(
 
         // T2 is computed correctly
         result.aggregate_constraint(*index, are_equal(next[get_register_column(constants::AH_OFFSET, 9)] +
-                                                      next[get_register_column(constants::CARRY_OFFSET, 4)] * logical_limit,
+                                                      next[get_register_column(constants::HASH_CARRY_OFFSET, 0)] * logical_limit,
                                                       next[get_register_column(constants::BITWISE_OUTPUT_OFFSET, 0)] +
                                                       next[get_register_column(constants::BITWISE_OUTPUT_OFFSET, 1)]),
                                     flag);
@@ -368,11 +368,11 @@ define_constraint!(
                                                       next[get_register_column(constants::AH_OFFSET, 9)],
 
                                                       next[get_register_column(constants::AH_OFFSET, 0)] +
-                                                      next[get_register_column(constants::CARRY_OFFSET, 5)] * logical_limit),
+                                                      next[get_register_column(constants::HASH_CARRY_OFFSET, 1)] * logical_limit),
                                     flag);
         *index += 1;
 
-        // W, E,F,G,H, CARRY[0..3], CARRY[6..7], HASH are preserved
+        // W, E,F,G,H, HASH are preserved
         for i in 0..16 {
             result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::WORK_SCHEDULE_OFFSET, i)],
                                                           next[get_register_column(constants::WORK_SCHEDULE_OFFSET, i)]),
@@ -385,16 +385,8 @@ define_constraint!(
                                         flag);
             *index += 1;
         }
-        for i in 0..3 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::CARRY_OFFSET, i)],
-                                                          next[get_register_column(constants::CARRY_OFFSET, i)]),
-                                        flag);
-            *index += 1;
-        }
-        for i in 6..8 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::CARRY_OFFSET, i)],
-                                                          next[get_register_column(constants::CARRY_OFFSET, i)]),
-                                        flag);
+        for i in 2..8 {
+            result.aggregate_constraint(*index, is_zero(next[get_register_column(constants::HASH_CARRY_OFFSET, i)]), flag);
             *index += 1;
         }
         for i in 0..8 {
@@ -524,9 +516,9 @@ define_constraint!(
                 current[get_register_column(constants::WORK_SCHEDULE_OFFSET, 0)];
 
         result.aggregate_constraint(*index, are_equal(w, next[get_register_column(constants::WORK_SCHEDULE_OFFSET, 15)] +
-                                                         next[get_register_column(constants::CARRY_OFFSET, 0)] * logical_limit +
-                                                         next[get_register_column(constants::CARRY_OFFSET, 1)] * logical_limit +
-                                                         next[get_register_column(constants::CARRY_OFFSET, 2)] * logical_limit),
+                                                         next[get_register_column(constants::HASH_CARRY_OFFSET, 0)] * logical_limit +
+                                                         next[get_register_column(constants::HASH_CARRY_OFFSET, 1)] * logical_limit +
+                                                         next[get_register_column(constants::HASH_CARRY_OFFSET, 2)] * logical_limit),
                                     flag);
         *index += 1;
 
@@ -542,7 +534,7 @@ define_constraint!(
                                     flag);
         *index += 1;
 
-        // Exhausted registers: W, BITS, CARRY[0-2], BITWISE_OUTPUT. The remaining are copied
+        // Exhausted registers: W, BITS, BITWISE_OUTPUT. The remaining are copied
         for i in 0..8 {
             result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::AH_OFFSET, i)],
                                                         next[get_register_column(constants::AH_OFFSET, i)]),
@@ -561,9 +553,7 @@ define_constraint!(
         *index += 1;
 
         for i in 3..8 {
-            result.aggregate_constraint(*index, are_equal(current[get_register_column(constants::CARRY_OFFSET, i)],
-                                                        next[get_register_column(constants::CARRY_OFFSET, i)]),
-                                        flag);
+            result.aggregate_constraint(*index, is_zero(next[get_register_column(constants::HASH_CARRY_OFFSET, i)]), flag);
             *index += 1;
         }
 
@@ -608,7 +598,7 @@ define_constraint!(
 
         for i in 0..8 {
             result.aggregate_constraint(*index, are_equal(next[get_register_column(constants::OUT_HASH_OFFSET, i)] +
-                                                          next[get_register_column(constants::CARRY_OFFSET, i)] * logical_limit,
+                                                          next[get_register_column(constants::HASH_CARRY_OFFSET, i)] * logical_limit,
 
                                                           current[get_register_column(constants::AH_OFFSET, i)] +
                                                           current[get_register_column(constants::OUT_HASH_OFFSET, i)]),

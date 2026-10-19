@@ -5,9 +5,8 @@ use std::fs;
 use std::io::{self, BufRead, BufReader};
 use std::env;
 
-// use loap_stark::crlupdate::{CRLUpdateProvable, CRLUpdateVerifiable};
-// use loap_stark::crlupdate::TRACE_WIDTH;
-use loap_stark::message_auth::{MessageAuthenticationProvable, MessageAuthenticationVerifiable, MessageAuthenticationData, TRACE_WIDTH};
+use loap_stark::crl_update::{CRLUpdateData, CRLData, CRLUpdateProvable, CRLUpdateVerifiable, TRACE_WIDTH};
+use loap_stark::message_auth::{MessageAuthenticationProvable, MessageAuthenticationVerifiable, MessageAuthenticationData};
 use loap_stark::{Provable, Verifiable};
 
 use jemallocator::Jemalloc;
@@ -16,15 +15,6 @@ use jemalloc_ctl::epoch;
 
 #[global_allocator]
 static ALLOC: Jemalloc = Jemalloc;
-
-// // ---- PKI Data ----
-// #[derive(Debug)]
-// struct CRLData {
-//     cn: String,
-//     this_update: String,
-//     next_update: String,
-//     hash: String,
-// }
 
 // #[derive(Debug)]
 // struct CertificateData {
@@ -37,12 +27,6 @@ static ALLOC: Jemalloc = Jemalloc;
 //     hash: String,
 // }
 
-// // ---- LOAP Message Data ----
-// #[derive(Debug)]
-// struct CRLUpdateData {
-//     crl: CRLData,
-// }
-
 // #[derive(Debug)]
 // struct AuthenticationData {
 //     cert: CertificateData,
@@ -52,7 +36,7 @@ static ALLOC: Jemalloc = Jemalloc;
 
 enum Message {
     // Authentication(AuthenticationData),
-    // CRLUpdate(CRLUpdateData),
+    CRLUpdate(CRLUpdateData),
     MessageAuthentication(MessageAuthenticationData)
 }
 
@@ -75,14 +59,14 @@ fn next_line<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<String, &'
 //     })
 // }
 
-// fn read_crl<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<CRLData, &'static str> {
-//     Ok(CRLData {
-//         cn: next_line(lines)?,
-//         this_update: next_line(lines)?,
-//         next_update: next_line(lines)?,
-//         hash: next_line(lines)?,
-//     })
-// }
+fn read_crl<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<CRLData, &'static str> {
+    Ok(CRLData {
+        cn: next_line(lines)?,
+        this_update: next_line(lines)?,
+        next_update: next_line(lines)?,
+        hash: next_line(lines)?,
+    })
+}
 
 fn read_message<'a>(lines: &mut impl Iterator<Item = &'a str>) -> Result<MessageAuthenticationData, &'static str> {
     Ok(MessageAuthenticationData {
@@ -142,14 +126,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
     //         authorities: authorities_vec,
     //         hash: hash_data
     //     }));
-    // } else if args[1] == "crlupdate" {
-    //     let crl_data = read_crl(&mut lines)?;
-    //     message = Some(Message::CRLUpdate(CRLUpdateData {
-    //         crl: crl_data
-    //     }));
     // } else 
-    
-    if args[1] == "message" {
+    if args[1] == "crlupdate" {
+        let crl_data = read_crl(&mut lines)?;
+        message = Some(Message::CRLUpdate(CRLUpdateData {
+            crl: crl_data
+        }));
+    } else if args[1] == "message" {
         let signature_data = read_message(&mut lines)?;
         message = Some(Message::MessageAuthentication(signature_data));
     } else {
@@ -193,39 +176,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>>{
         //     println!("[+] Heap used during verification: {}", after_verify - before_prove);
 
         // }
-        // Some(Message::CRLUpdate(update_data)) => {
-        //     println!("[+] Received CRLUpdate Message");
-        //     println!("[+] CRL Issuer: {}", update_data.crl.cn);
+        Some(Message::CRLUpdate(update_data)) => {
+            println!("[+] Received CRLUpdate Message");
+            println!("[+] CRL Issuer: {}", update_data.crl.cn);
 
-        //     epoch::advance().unwrap();
-        //     let _ = stats::allocated::read().unwrap();
+            epoch::advance().unwrap();
+            let _ = stats::allocated::read().unwrap();
 
-        //     let hash_eg = Box::new(CRLUpdateProvable::new(proof_options.clone(), columns));
+            let hash_eg = Box::new(CRLUpdateProvable::new(proof_options, columns, update_data.clone()));
 
-        //     epoch::advance().unwrap();
-        //     println!("[+] Starting proof...");
-        //     let before_prove = stats::allocated::read().unwrap();
-        //     let start = std::time::Instant::now();
-        //     let proof = hash_eg.prove();
-        //     println!("[+] Proof finalization took {:?}", start.elapsed());
-        //     epoch::advance().unwrap();
-        //     let after_prove = stats::allocated::read().unwrap();
-        //     println!("[+] Heap used during proof: {}", after_prove - before_prove);
-        //     println!("[+] Proof size: {}", proof.to_bytes().len());
+            epoch::advance().unwrap();
+            println!("[+] Starting proof...");
+            let before_prove = stats::allocated::read().unwrap();
+            let start = std::time::Instant::now();
+            let proof = hash_eg.prove();
+            println!("[+] Proof finalization took {:?}", start.elapsed());
+            epoch::advance().unwrap();
+            let after_prove = stats::allocated::read().unwrap();
+            println!("[+] Heap used during proof: {}", after_prove - before_prove);
+            println!("[+] Proof size: {}", proof.to_bytes().len());
 
-        //     let verifier = Box::new(CRLUpdateVerifiable::new(
-        //         proof_options,
-        //         proof.context.trace_info().length() as u64
-        //     ));
+            let verifier = Box::new(CRLUpdateVerifiable::new(
+                update_data,
+                proof.context.trace_info().length() as u64
+            ));
 
-        //     epoch::advance().unwrap();
-        //     let start = std::time::Instant::now();
-        //     assert!(verifier.verify(proof).is_ok());
-        //     println!("[+] Verification took {:?}", start.elapsed());
-        //     epoch::advance().unwrap();
-        //     let after_verify = stats::allocated::read().unwrap();
-        //     println!("[+] Heap used during verification: {}", after_verify - before_prove);
-        // }
+            epoch::advance().unwrap();
+            let start = std::time::Instant::now();
+            assert!(verifier.verify(proof).is_ok());
+            println!("[+] Verification took {:?}", start.elapsed());
+            epoch::advance().unwrap();
+            let after_verify = stats::allocated::read().unwrap();
+            println!("[+] Heap used during verification: {}", after_verify - before_prove);
+        }
         Some(Message::MessageAuthentication(signature_data)) => {
             println!("[+] Received MessageAuthentication Message");
             epoch::advance().unwrap();

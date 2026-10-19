@@ -538,7 +538,7 @@ define_constraint!(
         // Use the previous selector bits to add the correct pub key component / padding
         let mut padding_flag: E = E::ONE + E::ONE;
 
-        for i in (0..36).step_by(2) {
+        for i in (0..18).step_by(2) {
             padding_flag = padding_flag - current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i)];
             padding_flag = padding_flag - current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i+1)];
 
@@ -549,7 +549,8 @@ define_constraint!(
                 
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13)] * two128 +
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13 + 1)] +
-                next[get_register_column(constants::PUB_KEY_OFFSET, i)]
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i)] * E::from(constants::U64_REGISTER_LIMIT) +
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i + 1)]
             ), flag * current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i)]);
             *index += 1;
 
@@ -559,7 +560,8 @@ define_constraint!(
                 
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13 + 2)] * two128 +
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13 + 3)] +
-                next[get_register_column(constants::PUB_KEY_OFFSET, i + 1)]
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i + 2)] * E::from(constants::U64_REGISTER_LIMIT) +
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i + 3)]
             ), flag * current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i + 1)]);
             *index += 1;
         }

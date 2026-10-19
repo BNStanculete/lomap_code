@@ -27,7 +27,6 @@ class Sha256TraceBuilder(TraceBuilder):
         """
         self.__message_blocks = utils.from_bytes_to_32bit_blocks(
             utils.as_padded_bytes(message))
-        self.__num_blocks = len(self.__message_blocks) // 16
         self.__reset_registers()
 
     def set_message_blocks(self, message_block: list[int], hash: list[int] = [0] * 8):
@@ -187,6 +186,9 @@ class Sha256TraceBuilder(TraceBuilder):
         Arguments:
             round (int) : The round index. Used in selecting the appropriate constant.
         """
+        for idx, reg in enumerate(self.__build_registers()):
+            assert reg < pow(2, 32), f"Wrong register {reg} idx {idx} @ {self.__NUM_ROWS}"
+
         # The first 3 sets of BITS store the bitwise decomposition of e,f,g
         for index in range(32):
             self.__BITS[index] = (self.__E >> (31 - index)) & 1
@@ -217,12 +219,10 @@ class Sha256TraceBuilder(TraceBuilder):
         self.__T1 += self.__W[15] if round > 15 else self.__W[round]
 
         # Reset carries
-        self.__CARRY[0] = 0
-        self.__CARRY[1] = 0
-        self.__CARRY[2] = 0
-        self.__CARRY[3] = 0
+        for i in range(8):
+            self.__CARRY[i] = 0
 
-        for index in range(3):
+        for index in range(4):
             if self.__T1 < constants.REGISTER_LIMIT:
                 break
 
@@ -233,7 +233,7 @@ class Sha256TraceBuilder(TraceBuilder):
 
         if self.__E >= constants.REGISTER_LIMIT:
             self.__E -= constants.REGISTER_LIMIT
-            self.__CARRY[3] = 1
+            self.__CARRY[4] = 1
 
         if self.__SELECTORS[15] != 1:
             for i in range(15,0,-1):
@@ -270,19 +270,19 @@ class Sha256TraceBuilder(TraceBuilder):
             power //= 2
 
         # Reset carries
-        self.__CARRY[4] = 0
-        self.__CARRY[5] = 0
+        for i in range(8):
+            self.__CARRY[i] = 0
 
         self.__T2 = sum(self.__BITWISE_OUTPUT)        
         if self.__T2 > constants.REGISTER_LIMIT:
             self.__T2 -= constants.REGISTER_LIMIT
-            self.__CARRY[4] = 1
+            self.__CARRY[0] = 1
 
         self.__D, self.__C, self.__B, self.__A = self.__C, self.__B, self.__A,(self.__T1 + self.__T2)
 
         if self.__A >= constants.REGISTER_LIMIT:
             self.__A -= constants.REGISTER_LIMIT
-            self.__CARRY[5] = 1
+            self.__CARRY[1] = 1
 
     def __build_message_schedule(self):
         # Temporarily copy W[0] (W_t-16)
@@ -324,9 +324,8 @@ class Sha256TraceBuilder(TraceBuilder):
         # Construct the new message schedule
         self.__W[15] = sum(self.__BITWISE_OUTPUT) + self.__W[8] + W16
 
-        self.__CARRY[0] = 0
-        self.__CARRY[1] = 0
-        self.__CARRY[2] = 0
+        for i in range(8):
+            self.__CARRY[i] = 0
 
         for index in range(3):
             if self.__W[15] < constants.REGISTER_LIMIT:

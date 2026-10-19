@@ -82,8 +82,8 @@ class MessageTraceBuilder(TraceBuilder):
 
         # Now we compute the Poseidon hash of the public key
         poseidon_blocks = []
-        for i in range(36):
-            poseidon_blocks.append(self.__PUBLIC_KEY[i])
+        for i in range(18):
+            poseidon_blocks.append(self.__PUBLIC_KEY[2*i] << 64 | self.__PUBLIC_KEY[2*i+1])
         self.__poseidon.set_blocks(poseidon_blocks)
         poseidon_trace = self.__poseidon.build_trace(True)
         poseidon_trace = poseidon_trace.as_list()
@@ -129,10 +129,10 @@ class MessageTraceBuilder(TraceBuilder):
                     for i in range(set * 12 + 18, 312):
                         POSEIDON_REGISTERS[i] = 0
 
-                    assert 312 - 18 - set * 12 > 36, "Not enough bits for PUB_KEY selector"
+                    assert 312 - 18 - set * 12 > 18, "Not enough bits for PUB_KEY selector"
 
                     # Now we set the bits.
-                    if pub_key_index < 18:
+                    if pub_key_index < 9:
                         POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index] = 1
                         POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index + 1] = 1
                         pub_key_index += 1

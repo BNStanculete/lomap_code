@@ -290,13 +290,13 @@ if __name__ == '__main__':
                             if oid_part["OID"] == "CN":
                                 message_block.append(oid_part["Value"])
 
-                        message_block.append(str(poseidon_hash.poseidon_hash(proof_data[key]["Certificate"]["Serial"], 0)))
+                        message_block.append(str(proof_data[key]["Certificate"]["Serial"], 0))
 
                         # Hash the public key
                         pk_blocks = [
-                            proof_data[key]["Certificate"]["PublicKey"][0]]
+                            0, proof_data[key]["Certificate"]["PublicKey"][0]]
                         pk_blocks.extend([
-                            (proof_data[key]["Certificate"]["PublicKey"][1] >> shift) & (1 << 128 - 1) for shift in range(1920, -1, -128)
+                            (proof_data[key]["Certificate"]["PublicKey"][1] >> shift) & ((1 << 128) - 1) for shift in range(1920, -1, -128)
                         ])
 
                         pk_hash = poseidon_hash.poseidon_hash_many(pk_blocks)
@@ -455,8 +455,20 @@ if __name__ == '__main__':
                     file.write(input_data["CRLFields"]["NextUpdate"])
                     file.write("\n")
 
+                    # Get the public key hash
+                    blocks = [(input_data["PublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
+                    blocks.reverse()
+                    modulus_blocks = [(input_data["PublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                    modulus_blocks.reverse()
+
+                    blocks.extend(modulus_blocks)
+                    pk_hash = poseidon_hash.poseidon_hash_many(blocks)
+
                     # Write the Poseidon hash
                     hash = poseidon_hash.poseidon_hash_many([
+                        0, input_data["ProverSerial"],
+                        (pk_hash >> 128) & ((1 << 128) - 1),
+                        pk_hash & ((1 << 128) - 1),
                         int.from_bytes(cn.encode("utf-8")),
                         int.from_bytes(input_data["CRLFields"]["ThisUpdate"].encode("utf-8")),
                         int.from_bytes(input_data["CRLFields"]["NextUpdate"].encode("utf-8"))
@@ -541,13 +553,11 @@ if __name__ == '__main__':
                 print(f"[+] Executing proofs and verification for {message}")
                 print(f"[+] Writing temporary prover message...")
                 
-                blocks = [(input_data["PublicKey"][0] >> (i * 64)) & ((1 << 64) - 1) for i in range(4)]
+                blocks = [(input_data["PublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
                 blocks.reverse()
-                signature_blocks = [(input_data["PublicKey"][1] >> (i * 64)) & ((1 << 64) - 1) for i in range(32)]
-                signature_blocks.reverse()
-
-                blocks.extend(signature_blocks)
-
+                modulus_blocks = [(input_data["PublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                modulus_blocks.reverse()
+                blocks.extend(modulus_blocks)
                 p_hash = poseidon_hash.poseidon_hash_many(blocks)
                 with open(join(temp_path, "message.txt"), "w") as file:
                     file.write(str(p_hash))
