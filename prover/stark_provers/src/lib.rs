@@ -8,6 +8,7 @@ use winterfell::{
 
 pub mod crl_update;
 pub mod message_auth;
+pub mod initial_auth;
 
 mod utils;
 

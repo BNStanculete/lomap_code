@@ -7,6 +7,10 @@ class PoseidonTraceBuilder(TraceBuilder):
         self.__reset_registers()
         self.__blocks = []
 
+    def set_input_state(self, new_state: list[int]):
+        for i in range(len(self.__INPUT_STATE)):
+            self.__INPUT_STATE[i] == new_state[i]
+
     def build_trace(self, in_memory):
         trace = Trace()
 

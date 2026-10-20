@@ -282,6 +282,7 @@ if __name__ == '__main__':
                     message = []
                     for key in proof_data.keys():
                         message_block = []
+                        message_block.append(str(proof_data[key]["Certificate"]["Serial"]))
 
                         for oid_part in proof_data[key]["Certificate"]["Subject"]:
                             if oid_part["OID"] == "CN":
@@ -290,39 +291,56 @@ if __name__ == '__main__':
                             if oid_part["OID"] == "CN":
                                 message_block.append(oid_part["Value"])
 
-                        message_block.append(str(proof_data[key]["Certificate"]["Serial"], 0))
-
                         # Hash the public key
-                        pk_blocks = [
-                            0, proof_data[key]["Certificate"]["PublicKey"][0]]
-                        pk_blocks.extend([
-                            (proof_data[key]["Certificate"]["PublicKey"][1] >> shift) & ((1 << 128) - 1) for shift in range(1920, -1, -128)
-                        ])
+                        blocks = [(proof_data[key]["Certificate"]["PublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
+                        blocks.reverse()
+                        modulus_blocks = [(proof_data[key]["Certificate"]["PublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                        modulus_blocks.reverse()
 
-                        pk_hash = poseidon_hash.poseidon_hash_many(pk_blocks)
+                        blocks.extend(modulus_blocks)
+                        pk_hash = poseidon_hash.poseidon_hash_many(blocks)
                         message_block.append(str(pk_hash))
 
                         message_block.append(proof_data[key]["Certificate"]["NotBefore"])
                         message_block.append(proof_data[key]["Certificate"]["NotAfter"])
 
                         # Hash the cert representative
-                        cert_hash = poseidon_hash.poseidon_hash_many(
-                            get_poseidon_blocks(message_block)
-                        )
+                        cert_hash = poseidon_hash.poseidon_hash_many([
+                            proof_data[key]["Certificate"]["Serial"] >> 128, proof_data[key]["Certificate"]["Serial"] & ((1 << 128) - 1),
+                            int.from_bytes(message_block[2].encode('utf-8')),
+                            int.from_bytes(proof_data[key]["Certificate"]["NotBefore"].encode('utf-8')),
+                            int.from_bytes(proof_data[key]["Certificate"]["NotAfter"].encode('utf-8')),
+                            int.from_bytes(message_block[1].encode('utf-8')),
+                            (pk_hash >> 128) & ((1 << 128) - 1),
+                            pk_hash & ((1 << 128) - 1),
+                        ])
 
                         message_block.append(str(cert_hash))
                         
                         # Now deal with the CRL
                         if proof_data[key]["CRL"] != None:
+                            crl_pk_blocks = [(proof_data[key]["Certificate"]["IssuerPublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
+                            crl_pk_blocks.reverse()
+                            crl_mod_blocks = [(proof_data[key]["Certificate"]["IssuerPublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                            crl_mod_blocks.reverse()
+                            crl_pk_blocks.extend(crl_mod_blocks)
+
+                            crl_pk_hash = poseidon_hash.poseidon_hash_many(crl_pk_blocks)
+
                             crl_block = [
-                                message_block[0],
+                                message_block[1],
                                 proof_data[key]["CRL"]["CRLFields"]["ThisUpdate"],
                                 proof_data[key]["CRL"]["CRLFields"]["NextUpdate"],
                             ]
 
-                            crl_hash = poseidon_hash.poseidon_hash_many(
-                                get_poseidon_blocks(crl_block)
-                            )
+                            crl_hash = poseidon_hash.poseidon_hash_many([
+                                proof_data[key]["Certificate"]["Serial"] >> 128, proof_data[key]["Certificate"]["Serial"] & ((1 << 128) - 1),
+                                (crl_pk_hash >> 128) & ((1 << 128) - 1),
+                                crl_pk_hash & ((1 << 128) - 1),
+                                int.from_bytes(message_block[2].encode('utf-8')),
+                                int.from_bytes(proof_data[key]["CRL"]["CRLFields"]["ThisUpdate"].encode('utf-8')),
+                                int.from_bytes(proof_data[key]["CRL"]["CRLFields"]["NextUpdate"].encode('utf-8')),
+                            ])
 
                             crl_block.append(str(crl_hash))
                             message_block.extend(crl_block)

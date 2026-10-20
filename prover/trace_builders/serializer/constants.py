@@ -1,6 +1,6 @@
 
 # Trace Constants
-TRACE_WIDTH         = 399
+TRACE_WIDTH         = 426
 REGISTER_LIMIT      = pow(2, 64)
 
 OPERATION_CODES = {

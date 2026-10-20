@@ -43,12 +43,6 @@ class CrlTraceBuilder(TraceBuilder):
         self.__build_row(trace, in_memory)
         self.__NUM_ROWS += 1
 
-        # Initial Poseidon trace of the serial and public key
-        # poseidon_blocks = [
-        #     self.__SERIAL[0] << 64 | self.__SERIAL[1],
-        #     self.__SERIAL[2] << 64 | self.__SERIAL[3],
-        # ]
-
         poseidon_blocks = []
         for i in range(0,36,2):
             poseidon_blocks.append(self.__PUBLIC_KEY[i] << 64 | self.__PUBLIC_KEY[i+1])
@@ -57,8 +51,8 @@ class CrlTraceBuilder(TraceBuilder):
         self.__POSEIDON_INPUT_SELECTOR[0] = 1
         self.__POSEIDON_INPUT_SELECTOR[1] = 1
         self.__build_poseidon_trace(trace, in_memory, poseidon_blocks, True)
-        self.__poseidon_hasher.start_new_trace()
 
+        self.__poseidon_hasher.start_new_trace()
         poseidon_blocks = [
             self.__SERIAL[0] << 64 | self.__SERIAL[1],
             self.__SERIAL[2] << 64 | self.__SERIAL[3],
@@ -321,7 +315,6 @@ class CrlTraceBuilder(TraceBuilder):
 
         self.__execute_hash_round(trace, in_memory)
 
-        # pub key GOES IN POSEIDON
         signature, representative, pub_key = self.__get_signature_params()
         self.__signature_verifier.set_input(representative, pub_key, signature)
 
@@ -954,7 +947,6 @@ class CrlTraceBuilder(TraceBuilder):
         self.__BYTE_COUNTER = 0
         self.__ALIGNMENT_COUNTER = len(self.__ACCUMULATORS)
 
-        self.__add_to_poseidon = 0
         self.__poseidon_blocks = 0
 
     def __build_registers(self):
@@ -982,7 +974,7 @@ class CrlTraceBuilder(TraceBuilder):
             *self.__REMAINING,          #   S(0)
             *self.__POSEIDON_INPUT,
             *self.__POSEIDON_HASH,
-            *self.__POSEIDON_INPUT_SELECTOR
+            *self.__POSEIDON_INPUT_SELECTOR,
         ]
     
     def __build_row(self, trace: Trace, in_memory: bool):

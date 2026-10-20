@@ -2,12 +2,12 @@
     "Nr.Tests": 100,
     "PKIConfiguration": {
         "ChainLength": [
-            5,
-            5
+            3,
+            3
         ],
         "RevokedCertificates": [
-            1000,
-            1000
+            10,
+            10
         ],
         "AvailableSignatures": [
             "RSA-2048"
@@ -15,7 +15,8 @@
     },
     "MessageFlow": [
         {
-            "Type": "Authentication"
+            "Type": "MessageAuthentication",
+            "Message": "This is a test message. So it seems..."
         }
     ]
 }

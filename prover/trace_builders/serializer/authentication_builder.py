@@ -27,7 +27,7 @@ class AuthenticationTraceBuilder(TraceBuilder):
                 for col in range(1, 6):
                     self.__OPBITS[col - 1] = row[col]
                 for col in range(6, len(row)):
-                    self.__REGISTERS[col - 1] = row[col]
+                    self.__REGISTERS[col - 6] = row[col]
                 self.__build_row(trace, in_memory)
                 self.__NUM_ROWS += 1
 
@@ -40,7 +40,7 @@ class AuthenticationTraceBuilder(TraceBuilder):
                     for col in range(1, 6):
                         self.__OPBITS[col - 1] = row[col]
                     for col in range(6, len(row)):
-                        self.__REGISTERS[col - 1] = row[col]
+                        self.__REGISTERS[col - 6] = row[col]                    
                     self.__build_row(trace, in_memory)
                     self.__NUM_ROWS += 1
             current = next
@@ -70,7 +70,7 @@ class AuthenticationTraceBuilder(TraceBuilder):
     def __reset_registers(self):
         self.__NUM_ROWS = 0
         self.__OPBITS = [0] * 5
-        self.__REGISTERS = [0] * 397
+        self.__REGISTERS = [0] * 414
 
     def __build_registers(self):
         return [
