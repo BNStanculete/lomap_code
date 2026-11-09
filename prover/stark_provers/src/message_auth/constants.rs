@@ -1,8 +1,6 @@
 // Copyright Bogdan Stanculete 2026. All Rights Reserved.
 
 use winterfell::math::{fields::f252::BaseElement, FieldElement};
-use super::CYCLE_LENGTH;
-
 use crate::utils::to_base_element;
 
 // REGISTER OFFSETS
@@ -23,7 +21,7 @@ pub const AH_OFFSET: usize = 96;
 pub const BITS_OFFSET: usize = 106;
 
 pub const BITWISE_OUTPUT_OFFSET: usize = 330;
-pub const CARRY_OFFSET: usize = 332;
+pub const HASH_CARRY_OFFSET: usize = 332;
 pub const OUT_HASH_OFFSET: usize = 340;
 pub const W_SELECTOR_OFFSET: usize = 348;
 

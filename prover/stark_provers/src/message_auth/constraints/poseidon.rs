@@ -4,11 +4,11 @@ use winterfell::math::{fields::f252::BaseElement, FieldElement};
 
 use crate::utils::constraints::{
     EvaluationResult, ConstraintSpecification,
-    are_equal, is_binary, not, is_linear_decomposition, is_zero, is_division_by_two
+    are_equal
 };
 
 use crate::define_constraint;
-use super::{constants, get_register_column, get_register_column_with_set};
+use super::{constants, get_register_column};
 
 define_constraint!(
     poseidon_general_constraints,
@@ -538,7 +538,7 @@ define_constraint!(
         // Use the previous selector bits to add the correct pub key component / padding
         let mut padding_flag: E = E::ONE + E::ONE;
 
-        for i in (0..36).step_by(2) {
+        for i in (0..18).step_by(2) {
             padding_flag = padding_flag - current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i)];
             padding_flag = padding_flag - current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i+1)];
 
@@ -549,7 +549,8 @@ define_constraint!(
                 
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13)] * two128 +
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13 + 1)] +
-                next[get_register_column(constants::PUB_KEY_OFFSET, i)]
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i)] * E::from(constants::U64_REGISTER_LIMIT) +
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i + 1)]
             ), flag * current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i)]);
             *index += 1;
 
@@ -559,7 +560,8 @@ define_constraint!(
                 
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13 + 2)] * two128 +
                 current[get_register_column(constants::POSEIDON_START_OFFSET, 12 * 13 + 3)] +
-                next[get_register_column(constants::PUB_KEY_OFFSET, i + 1)]
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i + 2)] * E::from(constants::U64_REGISTER_LIMIT) +
+                next[get_register_column(constants::PUB_KEY_OFFSET, 2 * i + 3)]
             ), flag * current[get_register_column(constants::POSEIDON_SELECTOR_OFFSET, i + 1)]);
             *index += 1;
         }

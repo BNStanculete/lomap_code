@@ -11,3 +11,5 @@ blake3 = { version = "1.8", default-features = false }
 paste = { version = "1.0" }
 jemallocator = { version = "0.5" }
 jemalloc-ctl = { version = "0.5.4" }
+num-bigint = { version = "0.4" }
+num-traits = { version = "0.2" }

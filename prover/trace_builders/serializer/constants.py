@@ -1,6 +1,6 @@
 
 # Trace Constants
-TRACE_WIDTH         = 399
+TRACE_WIDTH         = 426
 REGISTER_LIMIT      = pow(2, 64)
 
 OPERATION_CODES = {
@@ -9,11 +9,15 @@ OPERATION_CODES = {
     "PoseidonOutput":               (0, 0, 0, 1, 1),
     "PoseidonRound":                (0, 0, 1, 0, 0),
 
-    "HeaderSerialization":          (0, 1, 0, 0, 0),
-    "FieldSerialization":           (0, 1, 0, 0, 1),
+    # TODO: ...Serialization is not needed, FIELD_LENGTH acts as guard for accumulation
+    # Instead you need to mark when the input goes into POSEIDON
+    # We also need a code for revocations
+    "NormalSerialization":          (0, 1, 0, 0, 0),
+    "SerializationWithHash":        (0, 1, 0, 0, 1),
     "AccumulatorLeftAllignment":    (0, 1, 0, 1, 0),
     "AccumulatorRightAllignment":   (0, 1, 0, 1, 1),
     "PostHashBookkeeping":          (0, 1, 1, 0, 0),
+    "SerializationWithRevocation":  (0, 1, 1, 0, 1),
 
     "HashInputRow":                 (1, 0, 0, 0, 0),
     "HashFirstHalfRound":           (1, 0, 0, 0, 1),

@@ -6,8 +6,9 @@ use winterfell::{
     BatchingMethod, FieldExtension, Proof, ProofOptions, VerifierError
 };
 
-pub mod crlupdate;
+pub mod crl_update;
 pub mod message_auth;
+pub mod initial_auth;
 
 mod utils;
 

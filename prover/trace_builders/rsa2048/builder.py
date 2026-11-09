@@ -8,6 +8,7 @@ class RSA2048TraceBuilder(TraceBuilder):
 
         # Build the initial row
         self.__build_row(trace, in_memory)
+        self.__NUM_ROWS += 1
 
         for idx in range(3, -1, -1):
             # We exhaust self.__E in LSB order.
@@ -31,7 +32,6 @@ class RSA2048TraceBuilder(TraceBuilder):
 
     def set_input(self, representative: int, public_key: list[int, int], signature: int):
         self.__reset_registers()
-        self.__NUM_ROWS = 1
         self.__REPRESENTATIVE[-1] = 1
 
         for idx in range(4):
@@ -111,9 +111,9 @@ class RSA2048TraceBuilder(TraceBuilder):
             self.__build_step_rows(trace, in_memory)
         else:
             for _ in range(128):
-                self.__NUM_ROWS += 1
                 self.__build_row(trace, in_memory)
-
+                self.__NUM_ROWS += 1
+                
         # Now we square the SIGNATURE
         self.__CARRY = [0] * 63
         self.__RESULT = [0] * 64
@@ -183,18 +183,16 @@ class RSA2048TraceBuilder(TraceBuilder):
                 self.__ATTESTORS[64 + idx] = self.__CARRY[idx] // 2
 
         # We build the multiplication row
-        self.__NUM_ROWS += 1
         self.__build_row(trace, in_memory)
+        self.__NUM_ROWS += 1
 
         # Next 63 rows just update the ATTESTORS. If the registers are indeed 64-bit, the final ATTESTOR must be 0
-        for _ in range(63):
-            self.__NUM_ROWS += 1
-            
+        for _ in range(63):            
             for idx in range(127):
                 self.__ATTESTORS[idx] //= 2
             
             self.__build_row(trace, in_memory)
-
+            self.__NUM_ROWS += 1
 
     def __can_terminate_early(self, current_index):
         """Checks whether all the upper registers of E are 0.
@@ -205,8 +203,8 @@ class RSA2048TraceBuilder(TraceBuilder):
         target_rows = next_power_of_two(self.__NUM_ROWS)
 
         for _ in range(self.__NUM_ROWS, target_rows):
-            self.__NUM_ROWS += 1
             self.__build_row(trace, in_memory)
+            self.__NUM_ROWS += 1
 
     def __init__(self, trace_file: str):
         super().__init__()

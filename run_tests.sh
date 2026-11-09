@@ -14,7 +14,7 @@ if [ ! -e "$(pwd)/artifacts/pki/.generated" ]; then
     fi
 fi
 
-if [ ! -e "$(pwd)/checkpoint_latest.py" ]; then
+if [ ! -e "$(pwd)/checkpoint_latest.json" ]; then
     # Run the DCS
     python3 preprocessor.py
 

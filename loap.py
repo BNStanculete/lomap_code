@@ -62,7 +62,7 @@ def write_ets_nodes(message_block: list[str], suite) -> int:
 
     # Last element is the prover commitment
     while index < len(message_block):
-        entity_cn = message_block[index]
+        entity_cn = message_block[index + 1]
 
         if Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).exists():
             index += 7
@@ -83,7 +83,7 @@ def write_ets_nodes(message_block: list[str], suite) -> int:
                 cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).stat().st_size
 
         if index < len(message_block):
-            next_cn = message_block[index]
+            next_cn = message_block[index + 2]
             if next_cn == entity_cn:
                 if Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcrl")).exists():
                     index += 4
@@ -180,17 +180,13 @@ if __name__ == '__main__':
 
     for test in test_data.keys():
         # Skip already completed tests
-        if test_data[test]["TestSuite"] in completed_suites:
+        if test in completed_suites:
             continue
 
         print(f"[+] Processing test case {test}...")
         print(f"[+] Found {len(test_data[test]["Flow"])} interactions.")
 
         if test_data[test]["TestSuite"] not in metrics.keys():
-            # We completed a new suite. Update the checkpoint
-            write_checkpoint(passed_suites, metrics, tested_flows)
-
-            passed_suites.append(test_data[test]["TestSuite"])
             metrics[test_data[test]["TestSuite"]] = {
                 "Authentication": {
                     "Prover": {
@@ -282,6 +278,7 @@ if __name__ == '__main__':
                     message = []
                     for key in proof_data.keys():
                         message_block = []
+                        message_block.append(str(proof_data[key]["Certificate"]["Serial"]))
 
                         for oid_part in proof_data[key]["Certificate"]["Subject"]:
                             if oid_part["OID"] == "CN":
@@ -290,39 +287,56 @@ if __name__ == '__main__':
                             if oid_part["OID"] == "CN":
                                 message_block.append(oid_part["Value"])
 
-                        message_block.append(str(poseidon_hash.poseidon_hash(proof_data[key]["Certificate"]["Serial"], 0)))
-
                         # Hash the public key
-                        pk_blocks = [
-                            proof_data[key]["Certificate"]["PublicKey"][0]]
-                        pk_blocks.extend([
-                            (proof_data[key]["Certificate"]["PublicKey"][1] >> shift) & (1 << 128 - 1) for shift in range(1920, -1, -128)
-                        ])
+                        blocks = [(proof_data[key]["Certificate"]["PublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
+                        blocks.reverse()
+                        modulus_blocks = [(proof_data[key]["Certificate"]["PublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                        modulus_blocks.reverse()
 
-                        pk_hash = poseidon_hash.poseidon_hash_many(pk_blocks)
+                        blocks.extend(modulus_blocks)
+                        pk_hash = poseidon_hash.poseidon_hash_many(blocks)
                         message_block.append(str(pk_hash))
 
                         message_block.append(proof_data[key]["Certificate"]["NotBefore"])
                         message_block.append(proof_data[key]["Certificate"]["NotAfter"])
 
                         # Hash the cert representative
-                        cert_hash = poseidon_hash.poseidon_hash_many(
-                            get_poseidon_blocks(message_block)
-                        )
+                        cert_hash = poseidon_hash.poseidon_hash_many([
+                            proof_data[key]["Certificate"]["Serial"] >> 128, proof_data[key]["Certificate"]["Serial"] & ((1 << 128) - 1),
+                            int.from_bytes(message_block[2].encode('utf-8')),
+                            int.from_bytes(proof_data[key]["Certificate"]["NotBefore"].encode('utf-8')),
+                            int.from_bytes(proof_data[key]["Certificate"]["NotAfter"].encode('utf-8')),
+                            int.from_bytes(message_block[1].encode('utf-8')),
+                            (pk_hash >> 128) & ((1 << 128) - 1),
+                            pk_hash & ((1 << 128) - 1),
+                        ])
 
                         message_block.append(str(cert_hash))
                         
                         # Now deal with the CRL
                         if proof_data[key]["CRL"] != None:
+                            crl_pk_blocks = [(proof_data[key]["Certificate"]["IssuerPublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
+                            crl_pk_blocks.reverse()
+                            crl_mod_blocks = [(proof_data[key]["Certificate"]["IssuerPublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                            crl_mod_blocks.reverse()
+                            crl_pk_blocks.extend(crl_mod_blocks)
+
+                            crl_pk_hash = poseidon_hash.poseidon_hash_many(crl_pk_blocks)
+
                             crl_block = [
-                                message_block[0],
+                                message_block[1],
                                 proof_data[key]["CRL"]["CRLFields"]["ThisUpdate"],
                                 proof_data[key]["CRL"]["CRLFields"]["NextUpdate"],
                             ]
 
-                            crl_hash = poseidon_hash.poseidon_hash_many(
-                                get_poseidon_blocks(crl_block)
-                            )
+                            crl_hash = poseidon_hash.poseidon_hash_many([
+                                proof_data[key]["Certificate"]["Serial"] >> 128, proof_data[key]["Certificate"]["Serial"] & ((1 << 128) - 1),
+                                (crl_pk_hash >> 128) & ((1 << 128) - 1),
+                                crl_pk_hash & ((1 << 128) - 1),
+                                int.from_bytes(message_block[2].encode('utf-8')),
+                                int.from_bytes(proof_data[key]["CRL"]["CRLFields"]["ThisUpdate"].encode('utf-8')),
+                                int.from_bytes(proof_data[key]["CRL"]["CRLFields"]["NextUpdate"].encode('utf-8')),
+                            ])
 
                             crl_block.append(str(crl_hash))
                             message_block.extend(crl_block)
@@ -455,8 +469,20 @@ if __name__ == '__main__':
                     file.write(input_data["CRLFields"]["NextUpdate"])
                     file.write("\n")
 
+                    # Get the public key hash
+                    blocks = [(input_data["PublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
+                    blocks.reverse()
+                    modulus_blocks = [(input_data["PublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                    modulus_blocks.reverse()
+
+                    blocks.extend(modulus_blocks)
+                    pk_hash = poseidon_hash.poseidon_hash_many(blocks)
+
                     # Write the Poseidon hash
                     hash = poseidon_hash.poseidon_hash_many([
+                        0, input_data["ProverSerial"],
+                        (pk_hash >> 128) & ((1 << 128) - 1),
+                        pk_hash & ((1 << 128) - 1),
                         int.from_bytes(cn.encode("utf-8")),
                         int.from_bytes(input_data["CRLFields"]["ThisUpdate"].encode("utf-8")),
                         int.from_bytes(input_data["CRLFields"]["NextUpdate"].encode("utf-8"))
@@ -540,10 +566,16 @@ if __name__ == '__main__':
                 tested_flows[test_data[test]["TestSuite"]]["MessageAuthentication"] += 1
                 print(f"[+] Executing proofs and verification for {message}")
                 print(f"[+] Writing temporary prover message...")
+                
+                blocks = [(input_data["PublicKey"][0] >> (i * 128)) & ((1 << 128) - 1) for i in range(2)]
+                blocks.reverse()
+                modulus_blocks = [(input_data["PublicKey"][1] >> (i * 128)) & ((1 << 128) - 1) for i in range(16)]
+                modulus_blocks.reverse()
+                blocks.extend(modulus_blocks)
+                p_hash = poseidon_hash.poseidon_hash_many(blocks)
                 with open(join(temp_path, "message.txt"), "w") as file:
-                    for item in input_data["PublicKey"]:
-                        file.write(str(item))
-                        file.write("\n")
+                    file.write(str(p_hash))
+                    file.write("\n")
 
                     for item in input_data["Signature"]:
                         file.write(str(item))
@@ -616,6 +648,10 @@ if __name__ == '__main__':
 
                 print(f"[+] Cleaning up...")
                 os.remove(join(temp_path, "proofs", "trace.txt"))
+        
+        # Update the checkpoint
+        completed_suites.append(test)
+        write_checkpoint(completed_suites, metrics, tested_flows)
 
     print("[+] Normalizing metrics...")
     for test_suite in metrics.keys():

@@ -35,11 +35,8 @@ class MessageTraceBuilder(TraceBuilder):
 
         # 1) Perform a SHA-256 Hashing
         HASH_REGISTERS = RegisterView(
-            (self.__REMAINING, 0, 268)
+            (self.__REMAINING, 0, 285)
         )
-
-        SELECTORS = [0] * 16
-        SELECTORS[0] = 1
 
         self.__hasher.from_message(self.__input_data["Message"].encode('utf-8'))
         hash_trace = self.__hasher.build_trace(True)
@@ -48,31 +45,22 @@ class MessageTraceBuilder(TraceBuilder):
         r_index = 0
         for row in hash_trace.as_list():
             r_index %= 64
-            relative_row = (row[0] - 1) % 178
+            relative_row = row[0] % 177
             
             self.__HASH_CONSTANT = 0
             for col in range(1, len(row)):
                 HASH_REGISTERS[col - 1] = row[col]
-            for i in range(16):
-                self.__REMAINING[268 + i] = SELECTORS[i]
 
             if relative_row == 0:
-                self.__OPBITS = constants.OPERATION_CODES["HashInputRow"]
-            elif (relative_row < 33 and (relative_row) % 2 == 1) or (relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 1):
+                self.__OPBITS = constants.OPERATION_CODES["HashAggregation"]
+            elif (relative_row < 32 and (relative_row) % 2 == 1) or (relative_row >= 32 and (relative_row) % 3 == 1):
                 self.__OPBITS = constants.OPERATION_CODES["HashFirstHalfRound"]
                 self.__HASH_CONSTANT = ROUND_CONSTANTS[r_index]
-
-                if SELECTORS[15] != 1:
-                    SELECTORS[r_index] = 0
-                    SELECTORS[r_index + 1] = 1
-                r_index += 1
-
-            elif (relative_row < 33 and (relative_row) % 2 == 0) or (relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 2):
+            elif (relative_row < 32 and (relative_row) % 2 == 0) or (relative_row >= 32 and (relative_row) % 3 == 2):
                 self.__OPBITS = constants.OPERATION_CODES["HashSecondHalfRound"]
-            elif relative_row >= 33 and relative_row < 177 and (relative_row) % 3 == 0:
+                r_index += 1
+            elif relative_row >= 32 and (relative_row) % 3 == 0:
                 self.__OPBITS = constants.OPERATION_CODES["HashScheduleUpdate"]
-            elif relative_row == 177:
-                self.__OPBITS = constants.OPERATION_CODES["HashAggregation"]
             self.__build_row(trace, in_memory)
             self.__NUM_ROWS += 1
 
@@ -94,8 +82,8 @@ class MessageTraceBuilder(TraceBuilder):
 
         # Now we compute the Poseidon hash of the public key
         poseidon_blocks = []
-        for i in range(36):
-            poseidon_blocks.append(self.__PUBLIC_KEY[i])
+        for i in range(18):
+            poseidon_blocks.append(self.__PUBLIC_KEY[2*i] << 64 | self.__PUBLIC_KEY[2*i+1])
         self.__poseidon.set_blocks(poseidon_blocks)
         poseidon_trace = self.__poseidon.build_trace(True)
         poseidon_trace = poseidon_trace.as_list()
@@ -141,10 +129,10 @@ class MessageTraceBuilder(TraceBuilder):
                     for i in range(set * 12 + 18, 312):
                         POSEIDON_REGISTERS[i] = 0
 
-                    assert 312 - 18 - set * 12 > 36, "Not enough bits for PUB_KEY selector"
+                    assert 312 - 18 - set * 12 > 18, "Not enough bits for PUB_KEY selector"
 
                     # Now we set the bits.
-                    if pub_key_index < 18:
+                    if pub_key_index < 9:
                         POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index] = 1
                         POSEIDON_REGISTERS[set * 12 + 18 + 2 * pub_key_index + 1] = 1
                         pub_key_index += 1
@@ -173,6 +161,9 @@ class MessageTraceBuilder(TraceBuilder):
         # Finally we pad to a power of two.
         if self.__hasPadding:
             self.__pad_rows(trace, in_memory)
+
+        # Clear Poseidon
+        self.__poseidon.start_new_trace()
 
         return trace
 
@@ -228,17 +219,17 @@ class MessageTraceBuilder(TraceBuilder):
         )
 
         for row in signature_trace.as_list():
-            if row[0] == 1:
+            if row[0] == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifInput"]
-            elif row[0] % 256 == 2:
+            elif (row[0] - 1) % 256 == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondMulti"]
-            elif row[0] % 256 == 130:
+            elif (row[0] - 1) % 256 == 128:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifMulti"]
-            elif row[0] % 256 == 66:
+            elif (row[0] - 1) % 256 == 64:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifCondRed"]
-            elif row[0] % 256 == 194:
+            elif (row[0] - 1) % 256 == 192:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifRed"]
-            elif row[0] % 256 < 130 and row[0] % 256 > 2 and row[74] == 0:
+            elif (row[0] - 1) % 256 < 128 and (row[0] - 1) % 256 > 0 and row[74] == 0:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifPadding"]
             else:
                 self.__OPBITS = constants.OPERATION_CODES["SignatureVerifAttest"]
