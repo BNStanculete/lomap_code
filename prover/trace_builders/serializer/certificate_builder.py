@@ -33,6 +33,7 @@ class CertificateTraceBuilder(TraceBuilder):
 
     def build_trace(self, in_memory):
         trace = Trace()
+        odd_poseidon = 0
 
         # Build the input row
         self.__build_row(trace, in_memory)
@@ -111,7 +112,7 @@ class CertificateTraceBuilder(TraceBuilder):
             (_, oid), (_, value), (_, length), (_, sublength) = pair.items()
 
             if oid != 'C':
-                if oid == 'CN':        
+                if oid == 'CN':
                     self.__conditional_serialize([
                         partial(self.__set_header, constants.SET, length),
                         partial(self.__build_row, trace, in_memory),
@@ -138,6 +139,12 @@ class CertificateTraceBuilder(TraceBuilder):
                         partial(self.__increment_rows),
                         partial(self.__write_value_encoding, trace, in_memory),
                     ], trace, in_memory)
+
+                    if len(value) > 16:
+                        odd_poseidon = 1
+                        self.__POSEIDON_INPUT_SELECTOR[0] = 1
+                        self.__POSEIDON_INPUT_SELECTOR[1] = 1
+                        self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
                 else:
                     self.__conditional_serialize([
                         partial(self.__set_header, constants.SET, length),
@@ -213,7 +220,8 @@ class CertificateTraceBuilder(TraceBuilder):
             partial(self.__write_value_encoding, trace, in_memory),
         ], trace, in_memory)
 
-        self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
+        if odd_poseidon == 0:
+            self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
 
         self.__conditional_serialize([
             partial(self.__set_header, constants.UTC_TIME, len(self.__input_data["NotAfter"])),
@@ -226,6 +234,9 @@ class CertificateTraceBuilder(TraceBuilder):
             partial(self.__write_value_encoding, trace, in_memory),
         ], trace, in_memory)
 
+        if odd_poseidon == 1:
+            self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
+        
         # 6) We encode the subject now -- Goes in Poseidon
         self.__conditional_serialize([
             partial(self.__set_header, constants.SEQUENCE, self.__input_data["SubjectLength"], True),
@@ -320,6 +331,9 @@ class CertificateTraceBuilder(TraceBuilder):
                     partial(self.__write_value_encoding, trace, in_memory),
                 ], trace, in_memory)
 
+        if odd_poseidon == 1:
+            self.__POSEIDON_INPUT[1] = 1
+            self.__POSEIDON_INPUT_SELECTOR[1] = 1
         self.__build_poseidon_trace(trace, in_memory, self.__POSEIDON_INPUT)
 
         # 8) We now encode the subject public key -- Goes in Poseidon TWICE
@@ -454,6 +468,9 @@ class CertificateTraceBuilder(TraceBuilder):
 
         if self.__hasPadding:
             self.__pad_rows(trace, in_memory)
+
+        # Clear Poseidon
+        self.__poseidon_hasher.start_new_trace()
 
         return trace
 
@@ -950,14 +967,17 @@ class CertificateTraceBuilder(TraceBuilder):
                 self.__POSEIDON_INPUT[self.__POSEIDON_INPUT_SELECTOR[0]] |= self.__FIELD_VALUE[0]
 
                 if counter > 16:
-                    self.__POSEIDON_INPUT[0] = self.__POSEIDON_INPUT[1] // pow(2, 128)
-                    self.__POSEIDON_INPUT[1] %= pow(2, 128)
+                    self.__POSEIDON_INPUT[1 - self.__POSEIDON_INPUT_SELECTOR[0]] += self.__POSEIDON_INPUT[self.__POSEIDON_INPUT_SELECTOR[0]] // pow(2, 128)
+                    self.__POSEIDON_INPUT[self.__POSEIDON_INPUT_SELECTOR[0]] %= pow(2, 128)
 
             self.__update_accumulators()
             self.__build_row(trace, in_memory)
             self.__NUM_ROWS += 1
 
         if self.__OPBITS == constants.OPERATION_CODES["SerializationWithHash"]:
+            if self.__POSEIDON_INPUT_SELECTOR[0] == 0 and counter > 16:
+                self.__POSEIDON_INPUT.reverse()
+
             if self.__POSEIDON_INPUT_SELECTOR[0] == 0:
                 self.__POSEIDON_INPUT_SELECTOR[0] = 1
             else:
@@ -1117,7 +1137,7 @@ class CertificateTraceBuilder(TraceBuilder):
 
         idx = 0
         for item in mlist:
-            assert item < pow(2, 128), f"Wrong @ {mlist[0]} / {idx}"
+            assert item < pow(2, 128), f"Wrong @ {mlist[0]} / {idx} : {item}"
             idx += 1
 
         return mlist

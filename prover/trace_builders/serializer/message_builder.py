@@ -162,6 +162,9 @@ class MessageTraceBuilder(TraceBuilder):
         if self.__hasPadding:
             self.__pad_rows(trace, in_memory)
 
+        # Clear Poseidon
+        self.__poseidon.start_new_trace()
+
         return trace
 
     def __pad_rows(self, trace, in_memory):

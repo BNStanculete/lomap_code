@@ -62,7 +62,7 @@ def write_ets_nodes(message_block: list[str], suite) -> int:
 
     # Last element is the prover commitment
     while index < len(message_block):
-        entity_cn = message_block[index]
+        entity_cn = message_block[index + 1]
 
         if Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).exists():
             index += 7
@@ -83,7 +83,7 @@ def write_ets_nodes(message_block: list[str], suite) -> int:
                 cache_bytes += Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcert")).stat().st_size
 
         if index < len(message_block):
-            next_cn = message_block[index]
+            next_cn = message_block[index + 2]
             if next_cn == entity_cn:
                 if Path(join(os.environ["LOAP_ETS_PATH"], suite, entity_cn + ".loapcrl")).exists():
                     index += 4
@@ -180,17 +180,13 @@ if __name__ == '__main__':
 
     for test in test_data.keys():
         # Skip already completed tests
-        if test_data[test]["TestSuite"] in completed_suites:
+        if test in completed_suites:
             continue
 
         print(f"[+] Processing test case {test}...")
         print(f"[+] Found {len(test_data[test]["Flow"])} interactions.")
 
         if test_data[test]["TestSuite"] not in metrics.keys():
-            # We completed a new suite. Update the checkpoint
-            write_checkpoint(passed_suites, metrics, tested_flows)
-
-            passed_suites.append(test_data[test]["TestSuite"])
             metrics[test_data[test]["TestSuite"]] = {
                 "Authentication": {
                     "Prover": {
@@ -652,6 +648,10 @@ if __name__ == '__main__':
 
                 print(f"[+] Cleaning up...")
                 os.remove(join(temp_path, "proofs", "trace.txt"))
+        
+        # Update the checkpoint
+        completed_suites.append(test)
+        write_checkpoint(completed_suites, metrics, tested_flows)
 
     print("[+] Normalizing metrics...")
     for test_suite in metrics.keys():

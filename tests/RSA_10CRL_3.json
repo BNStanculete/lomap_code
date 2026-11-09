@@ -1,5 +1,5 @@
 {
-    "Nr.Tests": 100,
+    "Nr.Tests": 50,
     "PKIConfiguration": {
         "ChainLength": [
             3,
@@ -19,6 +19,10 @@
         },
         {
             "Type": "Authentication"
+        },
+        {
+            "Type": "MessageAuthentication",
+            "Message": "This is a test message."
         }
     ]
 }
